@@ -7,22 +7,22 @@ Development
 
 To get going locally, simply do this::
 
-    git clone https://github.com/zsimic/pickley.git
-    cd pickley
+    git clone https://github.com/zsimic/mgit.git
+    cd mgit
 
     tox -e venv
 
     # You have a venv now in ./.venv, use it, open it with pycharm etc
     source .venv/bin/activate
     which python
-    which pickley
-    pickley install tox
-    pickley list
+    which mgit
+    mgit install tox
+    mgit list
 
     deactivate
 
 
-You can also get into pickley's virtualenv via ``tox -e venv bash``, use ``exit`` (or ``CTRL+D``) to exit in that case (not ``deactivate``).
+You can also get into mgit's virtualenv via ``tox -e venv bash``, use ``exit`` (or ``CTRL+D``) to exit in that case (not ``deactivate``).
 
 
 Running the tests
