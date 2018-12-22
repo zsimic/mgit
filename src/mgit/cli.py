@@ -12,7 +12,6 @@ Advanced usage:
   --ignore remove 'hackday.*'   Remove an ignore regex, for example here 'hackday.*'
   --ignore clean                Remove all ignores
 \b
-See http://go/mgit for more info
 """
 
 from __future__ import absolute_import

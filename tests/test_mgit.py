@@ -40,7 +40,7 @@ def expect_failure(args, *messages):
 
 
 def test_help():
-    expect_success('--help', "Manage git projects en masse", "See http://go/mgit")
+    expect_success('--help', "Manage git projects en masse")
 
 
 def test_invalid():
