@@ -11,7 +11,7 @@ script:
   - tox
 
 after_success:
-  - tox -e coverage,codecov,package
+  - tox -e coverage,codecov
 
 deploy:
   - provider: pypi
