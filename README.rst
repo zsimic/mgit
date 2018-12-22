@@ -44,9 +44,9 @@ Example usage
     setupmeta: [master] up to date*  last fetch 4d 23h ago
 
 
-Here we can see that I have 4 repos in ``~/dev/github`` (and all 4 come from ``github/zsimic``),
+Here we can see that I have 4 repos in ``~/dev/github`` (and thel all 4 come from github/zsimic),
 3 of them haven't been fetched in a while.
-We can fetch them all at once with ``--fetch`` (or ``-f``)::
+We can fetch them all at once like so::
 
     ~/dev/github: mgit --fetch
     ~/dev/github: 4 github/zsimic
