@@ -1,3 +1,2 @@
-arrow
 cached-property
 click

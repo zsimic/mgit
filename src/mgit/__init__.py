@@ -26,9 +26,7 @@ CACHE = Cache(os.path.expanduser("~/.cache"), 3600)
 
 
 def abort(message=None):
-    if message:
-        sys.exit(colored.problem(message))
-    sys.exit(1)
+    sys.exit(colored.problem(message) if message else 1)
 
 
 def git_parent_path(path):
