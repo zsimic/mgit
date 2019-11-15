@@ -16,13 +16,9 @@ To get going locally, simply do this::
     source .venv/bin/activate
     which python
     which mgit
-    mgit install tox
-    mgit list
+    mgit
 
     deactivate
-
-
-You can also get into mgit's virtualenv via ``tox -e venv bash``, use ``exit`` (or ``CTRL+D``) to exit in that case (not ``deactivate``).
 
 
 Running the tests
@@ -43,7 +39,7 @@ Run:
 Test coverage
 =============
 
-Run ``tox ; tox -e coverage``, then open ``.tox/_reports/coverage/index.html``
+Run ``tox ; tox -e coverage``, then open ``.tox/coverage/index.html``
 
 
 .. _pyenv: https://github.com/pyenv/pyenv

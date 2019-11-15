@@ -4,7 +4,6 @@
 url: https://github.com/zsimic
 """
 
-
 from setuptools import setup
 
 

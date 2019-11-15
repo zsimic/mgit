@@ -1,11 +1,9 @@
 import pytest
 
-from mgit.colored import activate_colors
 from mgit.git import GitRunReport
 
 
 def check_sorting(input, expected, max_chars=160):
-    activate_colors(False)
     if not isinstance(input, GitRunReport):
         input = GitRunReport(problem=input.split())
     assert isinstance(input, GitRunReport)

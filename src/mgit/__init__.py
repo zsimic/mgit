@@ -6,13 +6,12 @@ import collections
 import logging
 import os
 import re
-import sys
 
+import runez
 from cached_property import cached_property
 
-from mgit import colored
 from mgit.git import GitDir, GitRunReport
-from mgit.utils import Cache, pretty_path, RestWrapper
+from mgit.utils import Cache, RestWrapper
 
 
 try:
@@ -23,10 +22,6 @@ except NameError:
 
 LOG = logging.getLogger(__name__)
 CACHE = Cache(os.path.expanduser("~/.cache"), 3600)
-
-
-def abort(message=None):
-    sys.exit(colored.problem(message) if message else 1)
 
 
 def git_parent_path(path):
@@ -63,7 +58,7 @@ def get_target(path, **kwargs):
     prefs = MgitPreferences(**kwargs)
     actual_path = find_actual_path(path)
     if not actual_path or not os.path.isdir(actual_path):
-        abort("'%s' is not a directory" % pretty_path(actual_path))
+        runez.abort("No folder '%s'" % runez.short(actual_path))
     if os.path.isdir(os.path.join(actual_path, ".git")):
         return GitCheckout(actual_path, prefs=prefs)
     return ProjectDir(actual_path, prefs=prefs)
@@ -237,7 +232,7 @@ class StashProject(RemoteProject):
             # We already have a token, configuration is done
             return True
 
-        if not colored.is_tty():
+        if not runez.is_tty():
             # We're not on a tty, can't prompt user
             LOG.warning("Can't prompt for bitbucket token, not running with a tty")
             return False
@@ -257,7 +252,7 @@ class StashProject(RemoteProject):
                 print("Could not validate your token, you can try again")
                 continue
             if "description" in sample:
-                print("Token is valid, configuration saved in %s" % pretty_path(self.client.cache_path("_headers")))
+                print("Token is valid, configuration saved in %s" % runez.short(self.client.cache_path("_headers")))
                 return True
             print("Could not validate your token, you can try again: %s" % sample.get("message", "<no message>"))
 
@@ -327,7 +322,7 @@ class GitCheckout:
         result = "%s:" % self.aligned_name
 
         if self.git.is_git_checkout:
-            branch = colored.highlight(self.git.branches.shortened_current_branch)
+            branch = runez.bold(self.git.branches.shortened_current_branch)
             n = len(self.git.branches.local)
             if n > 1:
                 branch += " +%s" % (n - 1)
@@ -349,13 +344,13 @@ class GitCheckout:
 
         return result
 
-    def print_modified(self, name, items, color1=None, color2=None):
+    def print_modified(self, name, items, color1=runez.plain, color2=runez.plain):
         for item in items:
             state = item[0:2]
             if color2:
-                state = "%s%s" % (colored.colored(item[0], color1), colored.colored(item[1], color2))
+                state = "%s%s" % (color1(item[0]), color2(item[1]))
             elif color1:
-                state = colored.colored(state, color1)
+                state = color1(state)
             print("  %s %s" % (state, item[3:]))
 
     def apply(self):
@@ -385,8 +380,8 @@ class GitCheckout:
         if self.prefs.verbose or (not self.parent and self.prefs.align):
             if len(self.git.orphan_branches) > 1:
                 print("  Orphan branches: %s" % (", ".join(self.git.orphan_branches)))
-            self.print_modified("modified file", self.git.status.modified, colored.POP, colored.PROBLEM)
-            self.print_modified("untracked file", self.git.status.untracked, colored.WARN)
+            self.print_modified("modified file", self.git.status.modified, runez.teal, runez.red)
+            self.print_modified("untracked file", self.git.status.untracked, runez.orange)
 
 
 class Ignores:
@@ -394,7 +389,7 @@ class Ignores:
 
     def __init__(self, parent):
         self.parent = parent
-        self.path = "ignores-%s.json" % pretty_path(parent.path).replace("/", "-").replace("~", "-").strip("-")
+        self.path = "ignores-%s.json" % runez.short(parent.path).replace("/", "-").replace("~", "-").strip("-")
         self._values = None
         self._regex = None
 
@@ -545,19 +540,19 @@ class ProjectDir:
 
     @cached_property
     def header(self):
-        result = "%s:" % colored.note(pretty_path(self.path))
+        result = "%s:" % runez.purple(runez.short(self.path))
 
         if not self.projects:
-            return "%s %s" % (result, colored.warn("no git folders"))
+            return "%s %s" % (result, runez.orange("no git folders"))
 
         if self.predominant:
-            result += colored.highlight(" %s %s" % (len(self.projects[self.predominant]), self.predominant))
+            result += runez.bold(" %s %s" % (len(self.projects[self.predominant]), self.predominant))
 
         else:
-            result += colored.warn(" no predominant project")
+            result += runez.orange(" no predominant project")
 
         if self.additional:
-            result += " (%s)" % colored.note(", ".join("+%s %s" % (len(self.projects[project]), project) for project in self.additional))
+            result += " (%s)" % runez.purple(", ".join("+%s %s" % (len(self.projects[project]), project) for project in self.additional))
 
         return result
 

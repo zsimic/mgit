@@ -12,82 +12,11 @@ except ImportError:
     from urllib import unquote, urlencode
     from urllib2 import urlopen, Request, HTTPError, URLError
 
+import runez
+
 
 LOG = logging.getLogger(__name__)
 USER_HOME = os.path.expanduser("~")
-SECONDS_IN_ONE_MINUTE = 60
-SECONDS_IN_ONE_HOUR = 60 * SECONDS_IN_ONE_MINUTE
-SECONDS_IN_ONE_DAY = 24 * SECONDS_IN_ONE_HOUR
-
-
-def pretty_path(path):
-    """
-    :param str|None path: Path to prettify
-    :return str: Path with '~' representing user home
-    """
-    if not path:
-        return "."
-    return path.replace(USER_HOME, "~")
-
-
-def duration_unit(count, name, short):
-    if short:
-        name = name[0]
-    else:
-        name = " %s%s" % (name, "" if count == 1 else "s")
-    return "%s%s" % (count, name)
-
-
-def represented_duration(seconds, short=True, top=2, separator=" "):
-    """
-    :param seconds: Duration in seconds
-    :param bool short: If True use short form
-    :param int|None top: If specified, return top most significant
-    :return str: Human friendly duration representation
-    """
-    if seconds is None:
-        return ""
-
-    result = []
-    if isinstance(seconds, float):
-        seconds = int(seconds)
-
-    if not isinstance(seconds, int):
-        return str(seconds)
-
-    # First, separate seconds and days
-    days = seconds // SECONDS_IN_ONE_DAY
-    seconds -= days * SECONDS_IN_ONE_DAY
-
-    # Break down days into years, weeks and days
-    years = days // 365
-    days -= years * 365
-    weeks = days // 7
-    days -= weeks * 7
-
-    # Break down seconds into hours, minutes and seconds
-    hours = seconds // SECONDS_IN_ONE_HOUR
-    seconds -= hours * SECONDS_IN_ONE_HOUR
-    minutes = seconds // SECONDS_IN_ONE_MINUTE
-    seconds -= minutes * SECONDS_IN_ONE_MINUTE
-
-    if years:
-        result.append(duration_unit(years, "year", short))
-    if weeks:
-        result.append(duration_unit(weeks, "week", short))
-    if days:
-        result.append(duration_unit(days, "day", short))
-
-    if hours:
-        result.append(duration_unit(hours, "hour", short))
-    if minutes:
-        result.append(duration_unit(minutes, "minute", short))
-    if seconds or not result:
-        result.append(duration_unit(seconds, "second", short))
-    if top:
-        result = result[:top]
-
-    return separator.join(result)
 
 
 class Cache:
@@ -103,12 +32,12 @@ class Cache:
         self.cache_dir = os.path.expanduser(cache_dir)
         self.ttl = ttl
         if ttl and "PYCHARM_HOSTED" in os.environ:
-            self.ttl = max(ttl, debug_ttl * SECONDS_IN_ONE_HOUR)
+            self.ttl = max(ttl, debug_ttl * runez.SECONDS_IN_ONE_HOUR)
         if not os.path.isdir(self.cache_dir):
             os.makedirs(self.cache_dir)
 
     def __repr__(self):
-        return "%s %s" % (represented_duration(self.ttl, short=True), self.given_path)
+        return "%s %s" % (runez.represented_duration(self.ttl), self.given_path)
 
     def get(self, path, ttl=None):
         """

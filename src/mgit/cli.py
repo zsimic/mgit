@@ -14,14 +14,13 @@ Advanced usage:
 \b
 """
 
-from __future__ import absolute_import
-
 import logging
 import sys
 
 import click
+import runez
 
-from mgit import abort, colored, get_target, GitCheckout, ProjectDir
+from mgit import get_target, GitCheckout, ProjectDir
 from mgit.git import GitRunReport
 
 
@@ -30,10 +29,11 @@ VALID_IGNORE_ACTIONS = "show add remove clear".split()
 VALID_CLEAN_ACTIONS = "show local remote all reset".split()
 
 
-@click.command(context_settings=dict(help_option_names=["-h", "--help"], max_content_width=160), epilog=__doc__)
-@click.version_option()
-@click.option("--debug", is_flag=True, help="Show debugging information")
-@click.option("--color/--no-color", is_flag=True, default=None, help="Use (or not) colors (on by default on tty)")
+@runez.click.command()
+@runez.click.version()
+@runez.click.debug()
+@runez.click.color()
+@runez.click.log()
 @click.option("--ignore", metavar="action[:what]", default=None, help="Show/add/remove/clear ignores")
 @click.option("--clean", default=None, type=click.Choice(VALID_CLEAN_ACTIONS), help="Auto-clean branches")
 @click.option("-a", "--all", is_flag=True, default=False, help="Examine all repos, even missing git checkouts")
@@ -45,13 +45,13 @@ VALID_CLEAN_ACTIONS = "show local remote all reset".split()
 @click.option("-cr", is_flag=True, default=False, help="Handy shortcut for '--clean remote'")
 @click.option("-ca", is_flag=True, default=False, help="Handy shortcut for '--clean all'")
 @click.argument("target", required=False, default=None)
-def main(debug, color, ignore, clean, target, **kwargs):
+def main(debug, log, ignore, clean, target, **kwargs):
     """
     Manage git projects en masse
     """
-    level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(format="[%(levelname)s] %(asctime)s %(message)s", level=level)
-    colored.activate_colors(color)
+    runez.system.AbortException = SystemExit
+    runez.date.DEFAULT_DURATION_SPAN = -2
+    runez.log.setup(debug=debug, console_format="%(levelname)s %(message)s", file_location=log, locations=None)
 
     hc = handy_clean(kwargs)
     if not clean:
@@ -96,7 +96,7 @@ def run_git(target, fatal, *args):
     error = target.git.run_raw_git_command(*args)
     if error.has_problems:
         if fatal:
-            abort(error.representation())
+            runez.abort(error.representation())
         print(error.representation())
         return 0
     return 1
@@ -108,7 +108,7 @@ def clean_reset(target):
     """
     fallback = target.git.fallback_branch()
     if not fallback:
-        abort("Can't determine a branch that can be used for reset")
+        runez.abort("Can't determine a branch that can be used for reset")
     run_git(target, True, "reset", "--hard", "HEAD")
     run_git(target, True, "clean", "-fdx")
     if fallback != target.git.branches.current:
@@ -127,12 +127,12 @@ def clean_show(target):
         print("  No local branches can be cleaned")
     else:
         for branch in target.git.local_cleanable_branches:
-            print("  %s branch %s can be cleaned" % (colored.highlight("local"), colored.highlight(branch)))
+            print("  %s branch %s can be cleaned" % (runez.bold("local"), runez.bold(branch)))
     if not target.git.remote_cleanable_branches:
         print("  No remote branches can be cleaned")
     else:
         for branch in target.git.remote_cleanable_branches:
-            print("  %s can be cleaned" % (colored.highlight(branch)))
+            print("  %s can be cleaned" % (runez.bold(branch)))
 
 
 def handle_single_clean(target, what):
@@ -145,7 +145,7 @@ def handle_single_clean(target, what):
         if what != "reset":
             what = "clean"
         print(target.header(GitRunReport(report).add(problem="<can't %s" % what)))
-        abort()
+        runez.abort()
 
     if what == "reset":
         return clean_reset(target)
@@ -171,7 +171,7 @@ def handle_single_clean(target, what):
 
             total_cleaned += cleaned
             if cleaned == total:
-                print("%s cleaned" % colored.plural(cleaned, "remote branch"))
+                print("%s cleaned" % runez.plural(cleaned, "remote branch"))
             else:
                 print("%s/%s remote branches cleaned" % (cleaned, total))
 
@@ -198,9 +198,9 @@ def handle_single_clean(target, what):
 
             total_cleaned += cleaned
             if cleaned == total:
-                print(colored.highlight("%s cleaned" % colored.plural(cleaned, "local branch")))
+                print(runez.bold("%s cleaned" % runez.plural(cleaned, "local branch")))
             else:
-                print(colored.warn("%s/%s local branches cleaned" % (cleaned, total)))
+                print(runez.orange("%s/%s local branches cleaned" % (cleaned, total)))
 
             target.git.reset_cached_properties()
 
@@ -214,7 +214,7 @@ def handle_clean(target, what):
         return
 
     if what in "remote reset":
-        abort("Only '--clean show' and '--clean local' supported for multiple git checkouts for now")
+        runez.abort("Only '--clean show' and '--clean local' supported for multiple git checkouts for now")
 
     target.prefs.name_size = None
     target.prefs.set_short(True)
@@ -231,20 +231,20 @@ def handle_ignore(action, what, target):
     :param ProjectDir target: Target dir
     """
     if not isinstance(target, ProjectDir):
-        abort("--ignore applies to collections of checkouts, not particular checkouts")
+        runez.abort("--ignore applies to collections of checkouts, not particular checkouts")
     if not target.predominant:
-        abort("--ignore applies to internal bitbucket stash repos, this folder doesn't seem related to one")
+        runez.abort("--ignore applies to internal bitbucket stash repos, this folder doesn't seem related to one")
     if target.predominant.type != 'stash':
-        abort("--ignore applies to bitbucket stash only, not '%s'" % target.predominant.type)
+        runez.abort("--ignore applies to bitbucket stash only, not '%s'" % target.predominant.type)
 
     if not action:
         action = 'show'
 
     action = action.lower()
     if action not in VALID_IGNORE_ACTIONS:
-        abort("--ignore unknown action '%s', try for example: '--ignore show', or '--ignore add:hackday.*'")
+        runez.abort("--ignore unknown action '%s', try for example: '--ignore show', or '--ignore add:hackday.*'")
     if action in ('show', 'clear') and what:
-        abort("--ignore %s does not take arguments" % action)
+        runez.abort("--ignore %s does not take arguments" % action)
 
     if action == 'clear':
         target.ignores.clear()
@@ -252,27 +252,27 @@ def handle_ignore(action, what, target):
     elif action == 'add':
         added, invalid = target.ignores.add(what)
         if added:
-            print("Added %s" % colored.plural(added, "pattern"))
+            print("Added %s" % runez.plural(added, "pattern"))
         if invalid:
             print("%s: [%s], %s" % (
-                colored.note("Skipped"),
-                '], ['.join(colored.problem(s) for s in invalid),
-                colored.note("invalid regexes"),
+                runez.purple("Skipped"),
+                '], ['.join(runez.red(s) for s in invalid),
+                runez.purple("invalid regexes"),
             ))
 
     elif action == 'remove':
         removed, invalid = target.ignores.remove(what)
         if removed:
-            print("Removed %s" % colored.plural(removed, "pattern"))
+            print("Removed %s" % runez.plural(removed, "pattern"))
         if invalid:
             print("%s: [%s], %s" % (
-                colored.note("Skipped"),
-                '], ['.join(colored.problem(s) for s in invalid),
-                colored.note("not in ignore list"),
+                runez.purple("Skipped"),
+                '], ['.join(runez.red(s) for s in invalid),
+                runez.purple("not in ignore list"),
             ))
 
     values = target.ignores.values
     if not values:
-        print(colored.note("No ignores defined"))
+        print(runez.purple("No ignores defined"))
     else:
-        print("%s:\n  %s" % (colored.plural(values, "ignore", colored.NOTE), "\n  ".join(values)))
+        print("%s:\n  %s" % (runez.purple(runez.plural(values, "ignore")), "\n  ".join(values)))

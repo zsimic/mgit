@@ -21,7 +21,7 @@ def test_status(cli):
     # [wouldn't work if args passed as string, due to naive split in run()]
     # Status on a non-existing folder should fail
     bogus_path = "foo/non existing folder/bar"
-    cli.expect_failure(["--no-color", bogus_path], "is not a directory", bogus_path)
+    cli.expect_failure(["--no-color", bogus_path], "No folder", bogus_path)
 
     # Status on this test folder should succeed and report no git folders found
     test_folder = os.path.dirname(os.path.abspath(__file__))

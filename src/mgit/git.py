@@ -10,27 +10,18 @@ try:
 except ImportError:
     from urllib.parse import urlparse
 
+import runez
 from cached_property import cached_property
-
-from mgit import colored
-from mgit.utils import pretty_path, represented_duration, SECONDS_IN_ONE_HOUR
 
 
 LOG = logging.getLogger(__name__)
-FETCH_AGE_FILES = "FETCH_HEAD HEAD".split()
-FRESHNESS_THRESHOLD = 12 * SECONDS_IN_ONE_HOUR
+FETCH_AGE_FILES = ["FETCH_HEAD", "HEAD"]
+FRESHNESS_THRESHOLD = 12 * runez.SECONDS_IN_ONE_HOUR
 BRANCH_INVALID_CHARS = "~^: \t\\"
-GIT_ERROR_PREFIXES = set("git error fatal".split())
+GIT_ERROR_PREFIXES = {"git", "error", "fatal"}
 
 RE_GITHUB_SSH = re.compile(r"^git@([^:]+):(\w+)/([^/]+)$")
 RE_BRANCH_STATUS = re.compile(r"^## (.+)\.\.\.(([^/]+)/)?([^ ]+)\s*(\[(.+)\])?$")
-
-
-def decode(value):
-    """ Python 2/3 friendly decoding of output """
-    if isinstance(value, bytes):
-        return value.decode("utf-8")
-    return value
 
 
 def reset_cached_properties(obj, names=None):
@@ -179,7 +170,7 @@ class GitRunReport:
             n += size
             items.append(message)
 
-        result.extend(colored.colored(s, color) for s in items)
+        result.extend(color(s) for s in items)
         return n
 
     def representation(self, problem=True, progress=True, note=True, max_chars=160, separator="; "):
@@ -191,11 +182,11 @@ class GitRunReport:
         n = 0
         result = []
         if problem:
-            n = self._add_sorted(result, self._problem, colored.PROBLEM, n, max_chars)
+            n = self._add_sorted(result, self._problem, runez.red, n, max_chars)
         if progress:
-            n = self._add_sorted(result, self._progress, colored.PROGRESS, n, max_chars)
+            n = self._add_sorted(result, self._progress, runez.plain, n, max_chars)
         if note:
-            n = self._add_sorted(result, self._note, colored.NOTE, n, max_chars)
+            n = self._add_sorted(result, self._note, runez.purple, n, max_chars)
         result = separator.join(result)
         if len(result) > max_chars:
             result = "%s..." % (result[: max_chars - 3])
@@ -351,7 +342,7 @@ class GitDir:
             return result
 
         if self.age is not None and self.age > FRESHNESS_THRESHOLD:
-            result.add(note="last fetch %s ago" % represented_duration(self.age))
+            result.add(note="last fetch %s ago" % runez.represented_duration(self.age))
 
         orphan_branches = self.orphan_branches
         if self.branches.current in orphan_branches:
@@ -363,7 +354,7 @@ class GitDir:
         if len(orphan_branches) == 1:
             result.add(note="local branch '%s' can be pruned" % orphan_branches[0])
         elif orphan_branches:
-            result.add(note="%s can be pruned" % colored.plural(orphan_branches, "local branch"))
+            result.add(note="%s can be pruned" % runez.plural(orphan_branches, "local branch"))
 
         result.add(self.branches.report)
 
@@ -371,7 +362,7 @@ class GitDir:
             if len(self.remote_cleanable_branches) == 1:
                 cleanable = "'%s'" % next(iter(self.remote_cleanable_branches))
             else:
-                cleanable = colored.plural(self.remote_cleanable_branches, "remote branch")
+                cleanable = runez.plural(self.remote_cleanable_branches, "remote branch")
             result.add(note="%s can be cleaned" % cleanable)
 
         return result
@@ -385,7 +376,7 @@ class GitDir:
         if args and args[0] == "clone":
             args_represented = "git %s" % " ".join(args)
         else:
-            args_represented = "git -C %s %s" % (pretty_path(self.path), " ".join(args))
+            args_represented = "git -C %s %s" % (runez.short(self.path), " ".join(args))
             cmd.extend(["-C", self.path])
         cmd.extend(args)
         return cmd, args_represented
@@ -397,7 +388,7 @@ class GitDir:
         """
         cmd, pretty_args = self._git_command(args)
         pretty_args = "git %s" % " ".join(args)
-        print("Running: %s" % colored.highlight(pretty_args))
+        print("Running: %s" % runez.bold(pretty_args))
         proc = subprocess.Popen(cmd)  # nosec
         proc.communicate()
         if proc.returncode:
@@ -413,8 +404,8 @@ class GitDir:
         LOG.debug("Running: %s", pretty_args)
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # nosec
         output, error = proc.communicate()
-        output = decode(output)
-        error = decode(error)
+        output = runez.decode(output)
+        error = runez.decode(error)
         if proc.returncode == 0:
             return output, GitRunReport()
         if not error:
@@ -754,18 +745,18 @@ class GitStatus(GitAspect):
         """Short freshness overview"""
         result = []
         if self.report._problem:
-            result.append(colored.problem(" ".join(self.report._problem)))
+            result.append(runez.red(" ".join(self.report._problem)))
         if self.modified:
-            result.append(colored.plural(self.modified, "diff", colored.problem))
+            result.append(runez.red(runez.plural(self.modified, "diff")))
         if self.untracked:
-            result.append(colored.warn("%s untracked" % len(self.untracked)))
+            result.append(runez.orange("%s untracked" % len(self.untracked)))
         if self.report._note:
-            result.append(colored.note(" ".join(self.report._note)))
+            result.append(runez.purple(" ".join(self.report._note)))
         if not self.report._problem and not self.report._note and self._parent.age is not None:
             message = "up to date"
             if self._parent.age > FRESHNESS_THRESHOLD:
                 message += "*"
-            result.append(colored.pop(message))
+            result.append(runez.teal(message))
         return ", ".join(result)
 
     def _process_line(self, line):
