@@ -16,7 +16,7 @@ from cached_property import cached_property
 
 LOG = logging.getLogger(__name__)
 FETCH_AGE_FILES = ["FETCH_HEAD", "HEAD"]
-FRESHNESS_THRESHOLD = 12 * runez.SECONDS_IN_ONE_HOUR
+FRESHNESS_THRESHOLD = 12 * runez.date.SECONDS_IN_ONE_HOUR
 BRANCH_INVALID_CHARS = "~^: \t\\"
 GIT_ERROR_PREFIXES = {"git", "error", "fatal"}
 

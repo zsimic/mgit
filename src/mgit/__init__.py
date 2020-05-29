@@ -31,8 +31,10 @@ def git_parent_path(path):
     """
     if not path or len(path) <= 5:
         return None
+
     if os.path.isdir(os.path.join(path, ".git")):
         return path
+
     return git_parent_path(os.path.dirname(path))
 
 
@@ -42,12 +44,9 @@ def find_actual_path(path):
     :return str: Actual path to use as target
     """
     if not path or path == ".":
-        try:
-            current_dir = os.getcwd()
-            path = git_parent_path(current_dir) or current_dir
-        except Exception:
-            return None
-    return os.path.abspath(os.path.expanduser(str(path)))
+        path = git_parent_path(os.getcwd()) or "."
+
+    return runez.resolved_path(path)
 
 
 def get_target(path, **kwargs):
@@ -107,7 +106,7 @@ class MgitPreferences:
             if hasattr(self, name):
                 setattr(self, name, value)
                 continue
-            func = getattr(self, "set_%s" % name)
+            func = getattr(self, "set_%s" % name, None)
             if func:
                 func(value)
                 continue

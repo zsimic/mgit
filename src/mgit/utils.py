@@ -32,7 +32,7 @@ class Cache:
         self.cache_dir = os.path.expanduser(cache_dir)
         self.ttl = ttl
         if ttl and "PYCHARM_HOSTED" in os.environ:
-            self.ttl = max(ttl, debug_ttl * runez.SECONDS_IN_ONE_HOUR)
+            self.ttl = max(ttl, debug_ttl * runez.date.SECONDS_IN_ONE_HOUR)
         if not os.path.isdir(self.cache_dir):
             os.makedirs(self.cache_dir)
 
