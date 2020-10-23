@@ -5,14 +5,6 @@ Manage git projects en masse
     :target: https://pypi.org/project/mgit/
     :alt: Version on pypi
 
-.. image:: https://travis-ci.org/zsimic/mgit.svg?branch=master
-    :target: https://travis-ci.org/zsimic/mgit
-    :alt: Travis CI
-
-.. image:: https://codecov.io/gh/zsimic/mgit/branch/master/graph/badge.svg
-    :target: https://codecov.io/gh/zsimic/mgit
-    :alt: codecov
-
 .. image:: https://img.shields.io/pypi/pyversions/mgit.svg
     :target: https://github.com/zsimic/mgit
     :alt: Python versions tested (link to github project)

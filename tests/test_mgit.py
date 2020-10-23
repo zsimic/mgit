@@ -2,14 +2,13 @@ import os
 
 import pytest
 import runez
-from runez.conftest import project_folder, tests_folder
 
 import mgit
 
 
 def test_edge_cases():
     assert mgit.git_parent_path("/") is None
-    assert mgit.git_parent_path(tests_folder()) == project_folder()
+    assert mgit.git_parent_path(runez.log.tests_path()) == runez.log.project_path()
 
     prefs = mgit.MgitPreferences(all=True, fetch=False, pull=False, short=None)
     assert str(prefs) == "align all !fetch !pull !verbose"
@@ -39,16 +38,14 @@ def test_status(cli):
     cli.expect_failure("foo", "No folder 'foo'")
 
     # Status on this test folder should succeed and report no git folders found
-    cli.expect_success(tests_folder(), "no git folders")
+    cli.expect_success(cli.tests_folder, "no git folders")
 
     # Status on project folder should succeed (we're not calling fetch)
-    project = project_folder()
-    cli.expect_success(project, "mgit")
-
-    with runez.CurrentFolder(project):
+    cli.expect_success(cli.project_folder, "mgit")
+    with runez.CurrentFolder(cli.project_folder):
         cli.run()
         assert cli.succeeded
-        assert "%s:" % os.path.basename(project) in cli.logged.stdout
+        assert "%s:" % os.path.basename(cli.project_folder) in cli.logged.stdout
 
         cli.expect_success("-cs")
         cli.expect_failure("--ignore show", "applies to collections of checkouts")
