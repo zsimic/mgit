@@ -5,13 +5,17 @@ Fetch collections of git projects
     :target: https://pypi.org/project/mgit/
     :alt: Version on pypi
 
+.. image:: https://github.com/zsimic/mgit/workflows/Tests/badge.svg
+    :target: https://github.com/zsimic/mgit/actions
+    :alt: Tested with Github Actions
+
 .. image:: https://codecov.io/gh/zsimic/mgit/branch/master/graph/badge.svg
     :target: https://codecov.io/gh/zsimic/mgit
-    :alt: codecov
+    :alt: Test code codecov
 
 .. image:: https://img.shields.io/pypi/pyversions/mgit.svg
-    :target: https://github.com/zsimic/mgit
-    :alt: Python versions tested (link to github project)
+    :target: https://pypi.org/project/mgit/
+    :alt: Python versions tested
 
 
 Overview
