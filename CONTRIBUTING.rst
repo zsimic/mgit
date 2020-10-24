@@ -29,7 +29,7 @@ You can use pyenv_ for example to get python installations.
 
 Run:
 
-* ``tox -e py27`` (for example) to limit test run to only one python version.
+* ``tox -e py38`` (for example) to limit test run to only one python version.
 
 * ``tox -e style`` to run style checks only
 
@@ -39,7 +39,7 @@ Run:
 Test coverage
 =============
 
-Run ``tox ; tox -e coverage``, then open ``.tox/coverage/index.html``
+Run ``tox``, then open ``.tox/test-reports/htmlcov/index.html``
 
 
 .. _pyenv: https://github.com/pyenv/pyenv

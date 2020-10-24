@@ -1,27 +1,15 @@
-"""
-Manage git projects en masse
-"""
-
 import collections
 import logging
 import os
-import re
 
 import runez
 from cached_property import cached_property
 
 from mgit.git import GitDir, GitRunReport
-from mgit.utils import Cache, RestWrapper
 
 
-try:
-    input = raw_input
-except NameError:
-    pass
-
-
+__version__ = "1.1.6"
 LOG = logging.getLogger(__name__)
-CACHE = Cache(os.path.expanduser("~/.cache"), 3600)
 
 
 def git_parent_path(path):
@@ -52,15 +40,29 @@ def find_actual_path(path):
 def get_target(path, **kwargs):
     """
     :param str path: Path to target
-    :param dict **kwargs: Optional preferences
+    :param kwargs: Optional preferences
     """
     prefs = MgitPreferences(**kwargs)
     actual_path = find_actual_path(path)
     if not actual_path or not os.path.isdir(actual_path):
         runez.abort("No folder '%s'" % runez.short(actual_path))
+
     if os.path.isdir(os.path.join(actual_path, ".git")):
         return GitCheckout(actual_path, prefs=prefs)
+
     return ProjectDir(actual_path, prefs=prefs)
+
+
+def print_modified(items, color1, color2=None):
+    for item in items:
+        state = item[0:2]
+        if color2:
+            state = "%s%s" % (color1(item[0]), color2(item[1]))
+
+        elif color1:
+            state = color1(state)
+
+        print("  %s %s" % (state, item[3:]))
 
 
 class MgitPreferences:
@@ -85,10 +87,13 @@ class MgitPreferences:
         value = getattr(self, name, None)
         if value is None:
             return None
+
         if value is True:
             return name
+
         if value is False:
             return "!%s" % name
+
         return "%s=%s" % (name, value)
 
     def set_short(self, value):
@@ -106,42 +111,13 @@ class MgitPreferences:
             if hasattr(self, name):
                 setattr(self, name, value)
                 continue
+
             func = getattr(self, "set_%s" % name, None)
             if func:
                 func(value)
                 continue
+
             raise Exception("Internal error: add support for flag '%s'" % name)
-
-
-class RemoteProjectInfo:
-    """Info on a remote project"""
-
-    forkable = True
-    id = 0
-    name = ""
-    public = False
-    scmid = ""
-    slug = ""
-    state = ""
-    statusMessage = ""
-
-    clone_url = ""
-
-    def __init__(self, data):
-        """
-        :param dict data: Data from stash REST call
-        """
-        self.data = data
-        for k, v in data.items():
-            if hasattr(self, k):
-                setattr(self, k, v)
-        self.clone_url = ""
-        for link in data.get("links", {}).get("clone", []):
-            if link.get("name") == "ssh" or not self.clone_url:
-                self.clone_url = link.get("href", self.clone_url)
-
-    def __repr__(self):
-        return "%s%s" % (self.slug, "" if self.state == "AVAILABLE" else " [%s]" % self.state)
 
 
 class RemoteProject:
@@ -175,17 +151,18 @@ class RemoteProject:
         if url and url.hostname:
             if "stash" in url.hostname:
                 return StashProject(url)
+
             if "github" in url.hostname:
                 return GithubProject(url)
-        return UnkownProject(url)
+
+        return UnknownProject(url)
 
     @property
     def type(self):
         return self.__class__.__name__.lower()[:-7]
 
-    def projects(self, ignores):
+    def projects(self):
         """
-        :param Ignores ignores: Names to ignore from list
         :return dict: Projects on server hashed by their canonical name, if this is a stash server
         """
         LOG.warning("Ignoring --all option, no implementation for listing %s projects", self.type)
@@ -195,74 +172,12 @@ class RemoteProject:
 class StashProject(RemoteProject):
     """Bitbucket stash repo"""
 
-    client = None
-
-    def projects(self, ignores):
-        """
-        :param Ignores ignores: Names to ignore from list
-        :return dict: Projects on server hashed by their canonical name, if this is a stash server
-        """
-        self.client = RestWrapper("https://%s/rest/api/1.0/" % self.url.hostname, cache=CACHE)
-        result = {}
-        if not self.auto_configure():
-            LOG.warning("No API token available for %s, can't honor --all option", self.url.hostname)
-            return result
-        for project in self.iterate_projects(ignores):
-            result[project.slug] = project
-        return result
-
-    def iterate_projects(self, ignores, limit=1000):
-        count = 0
-        size = 25
-        offset = 0
-        while True:
-            response = self.client.get("projects", self.url.repo, "repos", size=size, start=offset)
-            for value in response["values"]:
-                count += 1
-                if not ignores.is_ignored(value["slug"]):
-                    yield RemoteProjectInfo(value)
-            if response["isLastPage"] or count > limit:
-                return
-            offset = response["nextPageStart"]
-
-    def auto_configure(self):
-        """Auto-configure access token for bitbucket"""
-        if self.client.headers():
-            # We already have a token, configuration is done
-            return True
-
-        if not runez.is_tty():
-            # We're not on a tty, can't prompt user
-            LOG.warning("Can't prompt for bitbucket token, not running with a tty")
-            return False
-
-        token = None
-        while not token:
-            token = input("Please paste bitbucket token from: https://%s/plugins/servlet/auth-token/user\n" % self.url.hostname)  # nosec
-            if not token or len(token) > 120 or len(token) < 100:
-                token = None
-                print("Invalid token, you can try again")
-                continue
-            self.client.save_headers({"X-Auth-User": os.environ["USER"], "X-Auth-Token": token})
-            sample = self.client.get("projects/ARGUS", ttl=1)  # public repo
-            if not sample:
-                self.client.save_headers({})
-                token = None
-                print("Could not validate your token, you can try again")
-                continue
-            if "description" in sample:
-                print("Token is valid, configuration saved in %s" % runez.short(self.client.cache_path("_headers")))
-                return True
-            print("Could not validate your token, you can try again: %s" % sample.get("message", "<no message>"))
-
-        return False
-
 
 class GithubProject(RemoteProject):
     """Github repo"""
 
 
-class UnkownProject(RemoteProject):
+class UnknownProject(RemoteProject):
     """Unknown repo"""
 
 
@@ -289,6 +204,7 @@ class GitCheckout:
     def prefs(self):
         if self.parent:
             return self.parent.prefs
+
         return self._prefs
 
     @cached_property
@@ -298,6 +214,7 @@ class GitCheckout:
         """
         if not self.git.config.repo_name or not self.git.is_git_checkout or self.basename == self.git.config.repo_name:
             return self.basename
+
         return "%s (%s)" % (self.basename, self.git.config.repo_name)
 
     @cached_property
@@ -309,9 +226,10 @@ class GitCheckout:
         name = self.name
         if self.parent and self.parent.prefs.name_size:
             name = ("%%%ss" % self.parent.prefs.name_size) % name
+
         return name
 
-    def header(self, report=None, freshness=True):
+    def header(self, report=None):
         """
         :param GitRunReport|None report: Optional report to show (defaults to self.git.report)
         :return str: Textual representation
@@ -325,12 +243,12 @@ class GitCheckout:
             n = len(self.git.branches.local)
             if n > 1:
                 branch += " +%s" % (n - 1)
+
             result += " [%s]" % branch
 
+            freshness = self.git.status.freshness
             if freshness:
-                freshness = self.git.status.freshness
-                if freshness:
-                    result += " %s" % freshness
+                result += " %s" % freshness
 
         if not report.has_problems and self.parent and self.prefs and self.prefs.all and self.parent.predominant:
             if self.origin_project != self.parent.predominant:
@@ -343,15 +261,6 @@ class GitCheckout:
 
         return result
 
-    def print_modified(self, name, items, color1=runez.plain, color2=runez.plain):
-        for item in items:
-            state = item[0:2]
-            if color2:
-                state = "%s%s" % (color1(item[0]), color2(item[1]))
-            elif color1:
-                state = color1(state)
-            print("  %s %s" % (state, item[3:]))
-
     def apply(self):
         """Apply switches as specified by prefs"""
         report = GitRunReport()
@@ -359,8 +268,10 @@ class GitCheckout:
             if self.prefs.all and not self.git.folder_exists:
                 if self.git.remote_info and self.git.remote_info.clone_url:
                     report.add(self.git.clone(self.git.remote_info.clone_url))
+
                 else:
                     return report.cant_pull("couldn't determine clone url")
+
             else:
                 report.add(self.git.pull())
 
@@ -379,94 +290,9 @@ class GitCheckout:
         if self.prefs.verbose or (not self.parent and self.prefs.align):
             if len(self.git.orphan_branches) > 1:
                 print("  Orphan branches: %s" % (", ".join(self.git.orphan_branches)))
-            self.print_modified("modified file", self.git.status.modified, runez.teal, runez.red)
-            self.print_modified("untracked file", self.git.status.untracked, runez.orange)
 
-
-class Ignores:
-    """Feature allowing to ignore some remote repos"""
-
-    def __init__(self, parent):
-        self.parent = parent
-        self.path = "ignores-%s.json" % runez.short(parent.path).replace("/", "-").replace("~", "-").strip("-")
-        self._values = None
-        self._regex = None
-
-    def __repr__(self):
-        count = len(self._values) if self._values is not None else "?"
-        return "%s %s" % (count, self.path)
-
-    @property
-    def values(self):
-        if self._values is None:
-            self._values = CACHE.get(self.path, ttl=0) or []
-        return self._values
-
-    def _normalized(self, pattern):
-        if pattern.startswith("*") or pattern.startswith("+"):
-            return ".%s" % pattern
-        return pattern
-
-    def save(self):
-        if self._values is not None:
-            self._regex = None
-            CACHE.put(self._values, self.path)
-
-    def is_ignored(self, name):
-        if self._regex is None:
-            values = self.values
-            if values and isinstance(values, list):
-                self._regex = re.compile("^(%s)$" % "|".join(values), flags=re.IGNORECASE)
-            else:
-                self._regex = ""
-        if not self._regex:
-            return False
-        return self._regex.match(name)
-
-    def clear(self):
-        if self.values:
-            self._regexes = None
-            self._values = []
-            self.save()
-
-    def add(self, *ignores):
-        """
-        :param list *ignores: Values to add
-        :return list: List of invalid (rejected) ignores, if any
-        """
-        result = []
-        added = []
-        for ignore in ignores:
-            try:
-                ignore = self._normalized(ignore)
-                if ignore in self.values:
-                    continue
-                re.compile(ignore)
-                self.values.append(ignore)
-                added.append(ignore)
-            except Exception:
-                result.append(ignore)
-        if added:
-            self.save()
-        return added, result
-
-    def remove(self, *ignores):
-        """
-        :param list *ignores: Values to remove
-        :return list: List of unknown ignores (that did not get remove), if any
-        """
-        result = []
-        removed = []
-        for ignore in ignores:
-            ignore = self._normalized(ignore)
-            if ignore in self.values:
-                self.values.remove(ignore)
-                removed.append(ignore)
-            else:
-                result.append(ignore)
-        if removed:
-            self.save()
-        return removed, result
+            print_modified(self.git.status.modified, runez.teal, runez.red)
+            print_modified(self.git.status.untracked, runez.orange)
 
 
 class ProjectDir:
@@ -478,13 +304,12 @@ class ProjectDir:
         :param MgitPreferences|None prefs: Display prefs
         """
         self.path = path                                # Path to folder to examine
-        self.prefs = prefs or MgitPreferences()         # Prefs on how to output result
+        self.prefs = prefs or MgitPreferences()         # Preferences on how to output result
         self.checkouts = []                             # Actual git checkouts in 'path'
         self.projects = collections.defaultdict(set)    # Seen remotes
         self.predominant = None                         # Predominant remote, if any
         self.additional = None                          # Additional projects (sorted by checkouts, descending)
         self.stash_projects = {}                        # Corresponding projects from stash, when applicable
-        self.ignores = Ignores(self)
         self.scan()
 
     def __repr__(self):
@@ -495,12 +320,14 @@ class ProjectDir:
         for fname in os.listdir(self.path):
             if fname and fname.startswith("."):
                 continue
-            spath = os.path.join(self.path, fname)
-            if os.path.isdir(spath):
-                r = GitCheckout(spath, parent=self)
+
+            source_path = os.path.join(self.path, fname)
+            if os.path.isdir(source_path):
+                r = GitCheckout(source_path, parent=self)
                 self.checkouts.append(r)
                 if r.git.is_git_checkout:
                     self.projects[r.origin_project].add(r)
+
         self.predominant = None
         self.additional = None
         counts = [(project, len(self.projects[project])) for project in sorted(self.projects, key=lambda x: -len(self.projects[x]))]
@@ -511,29 +338,37 @@ class ProjectDir:
             if not counts or all(t[1] <= threshold for t in counts):
                 self.predominant = top
                 self.additional = self.additional[1:]
+
         if not self.prefs.all or not self.predominant:
             self.stash_projects = {}
+
         else:
-            self.stash_projects = self.predominant.projects(self.ignores)
+            self.stash_projects = self.predominant.projects()
             seen = {}
             for checkout in self.checkouts:
                 if not checkout.git.is_git_checkout:
                     continue
+
                 canonical_name = checkout.git.config.repo_name
                 seen[canonical_name] = True
                 checkout.git.remote_info = self.stash_projects.get(canonical_name)
+
             for name, project in self.stash_projects.items():
                 if name in seen:
                     continue
+
                 path = os.path.join(self.path, name)
                 if os.path.isdir(path):
                     path += ".1"
+
                 r = GitCheckout(path, parent=self)
                 r.git.remote_info = project
                 self.checkouts.append(r)
+
         self.checkouts = sorted(self.checkouts, key=lambda x: x.basename)
         if self.prefs.align and self.projects:
             self.prefs.name_size = min(36, max(len(c.name) for c in self.checkouts))
+
         else:
             self.prefs.name_size = None
 

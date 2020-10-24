@@ -23,6 +23,9 @@ jobs:
 
     - run: pip install -U pip tox
     - run: tox -e py
+    - uses: codecov/codecov-action@v1
+      with:
+        file: .tox/test-reports/coverage.xml
 
   linter:
 
@@ -35,4 +38,4 @@ jobs:
         python-version: '3.8'
 
     - run: pip install -U pip tox
-    - run: tox -e docs,style,security
+    - run: tox -e docs,style

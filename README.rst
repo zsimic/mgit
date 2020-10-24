@@ -1,9 +1,13 @@
-Manage git projects en masse
-============================
+Fetch collections of git projects
+=================================
 
 .. image:: https://img.shields.io/pypi/v/mgit.svg
     :target: https://pypi.org/project/mgit/
     :alt: Version on pypi
+
+.. image:: https://codecov.io/gh/zsimic/mgit/branch/master/graph/badge.svg
+    :target: https://codecov.io/gh/zsimic/mgit
+    :alt: codecov
 
 .. image:: https://img.shields.io/pypi/pyversions/mgit.svg
     :target: https://github.com/zsimic/mgit
@@ -78,37 +82,23 @@ Synopsis::
     ~/dev/github: mgit --help
     Usage: mgit [OPTIONS] [TARGET]
 
-      Manage git projects en masse
+      Fetch collections of git projects
 
     Options:
       --version                       Show the version and exit.
-      --debug                         Show debugging information
-      --color / --no-color            Use (or not) colors (on by default on tty)
-      --ignore action[:what]          Show/add/remove/clear ignores
+      --debug                         Show debugging information.
+      --color / --no-color            Use colors (on by default on ttys)
+      --log PATH                      Override log file location.
       --clean [show|local|remote|all|reset]
                                       Auto-clean branches
-      -a, --all                       Examine all repos, even missing git checkouts
       -f, --fetch                     Fetch from all remotes
-      -p, --pull                      Pull from tracking remote, clone missing with --all
+      -p, --pull                      Pull from tracking remote
       -s, --short / -v, --verbose     Short/verbose output
       -cs                             Handy shortcut for '--clean show'
       -cl                             Handy shortcut for '--clean local'
       -cr                             Handy shortcut for '--clean remote'
       -ca                             Handy shortcut for '--clean all'
       -h, --help                      Show this message and exit.
-
-      Advanced usage:
-        --clean show                  Show which local/remote branches can be cleaned
-        --clean local                 Clean local branches that were deleted from their corresponding remote
-        --clean remote                Clean merged remote branches
-        --clean all                   Clean local and merged remote branches
-        --clean reset                 Do a git --reset --hard + clean -fdx (nuke all changes, get back to pristine state)
-
-        --ignore show                 Show ignores currently in effect
-        --ignore add 'hackday.*'      Add an ignore regex, for example here 'hackday.*'
-        --ignore remove 'hackday.*'   Remove an ignore regex, for example here 'hackday.*'
-        --ignore clean                Remove all ignores
-
 
 Installation
 ============

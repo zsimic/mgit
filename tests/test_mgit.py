@@ -25,9 +25,8 @@ def test_edge_cases():
 
 
 def test_usage(cli):
-    cli.expect_success("--help", "Manage git projects en masse")
-    cli.expect_success("--version", "version")
-
+    cli.expect_success("--help")
+    cli.expect_success("--version")
     cli.expect_failure("--foo", "no such option")
 
 
@@ -48,4 +47,3 @@ def test_status(cli):
         assert "%s:" % os.path.basename(cli.project_folder) in cli.logged.stdout
 
         cli.expect_success("-cs")
-        cli.expect_failure("--ignore show", "applies to collections of checkouts")

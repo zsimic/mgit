@@ -7,6 +7,7 @@ import time
 
 try:
     from urlparse import urlparse
+
 except ImportError:
     from urllib.parse import urlparse
 
@@ -21,7 +22,7 @@ BRANCH_INVALID_CHARS = "~^: \t\\"
 GIT_ERROR_PREFIXES = {"git", "error", "fatal"}
 
 RE_GITHUB_SSH = re.compile(r"^git@([^:]+):(\w+)/([^/]+)$")
-RE_BRANCH_STATUS = re.compile(r"^## (.+)\.\.\.(([^/]+)/)?([^ ]+)\s*(\[(.+)\])?$")
+RE_BRANCH_STATUS = re.compile(r"^## (.+)\.\.\.(([^/]+)/)?([^ ]+)\s*(\[(.+)])?$")
 
 
 def reset_cached_properties(obj, names=None):
@@ -35,8 +36,10 @@ def reset_cached_properties(obj, names=None):
     if names:
         if hasattr(names, "startswith") and names.startswith("-"):
             names = set(obj.__class__.__dict__) - set(names[1:].split())
+
         elif hasattr(names, "split"):
             names = names.split()
+
     else:
         names = obj.__class__.__dict__
 
@@ -53,9 +56,11 @@ def is_valid_branch_name(name):
     """
     if not name or name[0] == "." or ".." in name or name.endswith("/") or name.endswith(".lock"):
         return False
+
     for char in name:
         if ord(char) < 32 or char in BRANCH_INVALID_CHARS:
             return False
+
     return True
 
 
@@ -72,15 +77,20 @@ def shortened_message(text, keep_lines=2, separator=" "):
         line = line.strip().strip(".")
         if not line:
             continue
+
         p = line.partition(":")
         if p[2] and p[0] in GIT_ERROR_PREFIXES:
             prefixed.append(p[2].strip())
+
         else:
             lines.append(line)
+
     if prefixed:
         lines = prefixed
+
     if keep_lines and len(lines) > keep_lines:
         lines = lines[:keep_lines]
+
     return separator.join(lines).replace("  ", " ").strip()
 
 
@@ -103,9 +113,11 @@ class GitRunReport:
         """
         if not text:
             return False
+
         for problem in self._problem:
             if text in problem:
                 return True
+
         return False
 
     @classmethod
@@ -116,80 +128,34 @@ class GitRunReport:
         self.add(problem="<can't pull")
         if reason:
             self.add(problem=reason)
-        return self
 
-    def cant_reset(self, reason=None):
-        self.add(problem="<can't --reset")
-        if reason:
-            self.add(problem=reason)
         return self
 
     @property
     def has_problems(self):
         return bool(self._problem)
 
-    @property
-    def is_empty(self):
-        return not self._problem and not self._note and not self._progress
-
-    def _report_sorter(self, enum):
+    def representation(self, progress=True, note=True, max_chars=160, separator="; "):
         """
-        :param tuple(int, str) enum: Tuple from enumerate()
-        :return int: Value to use for sorting messages in this report
-        """
-        index, message = enum
-        if message[0] == '<':
-            return -enum[0]                 # '<' makes message sort towards front, but keeping order with other such prefixed messages
-        elif message[0] == '>':
-            return 1000000 + enum[0]        # '>' makes message sort towards end
-        else:
-            return enum[0]                  # Non-prefixed message stay where they were
-
-    def _add_sorted(self, result, target, color, n, max_chars):
-        """
-        :param list(str) result: Where to accumulate sorted report
-        :param list(str) target: Target to sort, respecting '<' and '>' prefixing
-        :param color: Optional color to use
-        :param int n: How many chars were consumed so far
-        :param int|None max_chars: Maximum number of characters to yield
-        :return int: Number of chars accumulated
-        """
-        if max_chars and n > max_chars:
-            # We already reached limit
-            return n
-
-        items = []
-        for message in (s.lstrip("<>") for i, s in sorted(enumerate(target), key=self._report_sorter)):
-            size = len(message)
-            if max_chars:
-                remaining = max_chars - n
-                if remaining < size:
-                    items.append(message[:remaining])
-                    n += size
-                    break
-            n += size
-            items.append(message)
-
-        result.extend(color(s) for s in items)
-        return n
-
-    def representation(self, problem=True, progress=True, note=True, max_chars=160, separator="; "):
-        """
-        :param int|None max_chars: Max chars to show (truncate if messages are longer)
+        :param bool progress: Show repos with progress mention (pulled/cloned)
+        :param bool note: Show repos with notes
+        :param int max_chars: Max chars to show (truncate if messages are longer)
         :param str separator: Separator to use
-        :return str: Textual representaion
+        :return str: Textual representation
         """
-        n = 0
         result = []
-        if problem:
-            n = self._add_sorted(result, self._problem, runez.red, n, max_chars)
+        n = _add_sorted(result, self._problem, runez.red, 0, max_chars)
+
         if progress:
-            n = self._add_sorted(result, self._progress, runez.plain, n, max_chars)
+            n = _add_sorted(result, self._progress, runez.plain, n, max_chars)
+
         if note:
-            n = self._add_sorted(result, self._note, runez.purple, n, max_chars)
+            _add_sorted(result, self._note, runez.purple, n, max_chars)
+
         result = separator.join(result)
         if len(result) > max_chars:
             result = "%s..." % (result[: max_chars - 3])
+
         return result
 
     def _add(self, target, items):
@@ -199,9 +165,11 @@ class GitRunReport:
         """
         if not items:
             return
+
         if isinstance(items, (list, tuple)):
             for item in items:
                 self._add(target, item)
+
         elif items not in target:
             target.append(items)
 
@@ -214,12 +182,13 @@ class GitRunReport:
             self._add(self._progress, other._progress)
             self._add(self._note, other._note)
             self._add(self._problem, other._problem)
+
         return self
 
     def add(self, *args, **kwargs):
         """
-        :param list *args: Optional, other reports to cumulate
-        :param dict **kwargs: Optional, attrbiutes to add
+        :param args: Optional, other reports to cumulate
+        :param kwargs: Optional, attributes to add
         :return GitRunReport: Returns self
         """
         for item in args:
@@ -230,11 +199,14 @@ class GitRunReport:
             target = getattr(self, attribute_name, None)
             if target is None:
                 raise Exception("Internal error: invalid GitRunReport target '%s'" % key)
+
             if isinstance(value, (list, tuple)):
                 for item in value:
                     self.add(**{key: item})
+
             elif isinstance(value, GitRunReport):
                 self._add(target, getattr(value, attribute_name))
+
             else:
                 self._add(target, value)
 
@@ -262,6 +234,7 @@ class GitURL:
         """
         if basename and basename.endswith(".git"):
             basename = basename[:-4]
+
         self.name = basename or "unknown"
 
     def _set_repo(self, dirname):
@@ -270,6 +243,7 @@ class GitURL:
         """
         if dirname and "/" in dirname:
             dirname = os.path.basename(dirname)
+
         self.repo = dirname or "unknown"
 
     def set(self, url):
@@ -285,6 +259,7 @@ class GitURL:
             self._set_name(None)
             self._set_repo(None)
             return
+
         if url.startswith("git@"):
             m = RE_GITHUB_SSH.match(url)
             if m:
@@ -296,6 +271,7 @@ class GitURL:
                 self._set_repo(m.group(2))
                 return
             url = "ssh://%s" % url
+
         p = urlparse(url)
         self.protocol = p.scheme or "file"
         self.hostname = p.hostname or "local"
@@ -320,6 +296,7 @@ class GitDir:
     def __repr__(self):
         if not self.is_git_checkout:
             return "! %s" % self.path
+
         return self.path
 
     def report(self, bare=False, inspect_remotes=False):
@@ -331,6 +308,7 @@ class GitDir:
         if not self.is_git_checkout:
             if self.remote_info:
                 return GitRunReport(problem="not cloned yet")
+
             return GitRunReport.not_git()
 
         result = GitRunReport()
@@ -353,6 +331,7 @@ class GitDir:
 
         if len(orphan_branches) == 1:
             result.add(note="local branch '%s' can be pruned" % orphan_branches[0])
+
         elif orphan_branches:
             result.add(note="%s can be pruned" % runez.plural(orphan_branches, "local branch"))
 
@@ -361,8 +340,10 @@ class GitDir:
         if inspect_remotes and self.remote_cleanable_branches:
             if len(self.remote_cleanable_branches) == 1:
                 cleanable = "'%s'" % next(iter(self.remote_cleanable_branches))
+
             else:
                 cleanable = runez.plural(self.remote_cleanable_branches, "remote branch")
+
             result.add(note="%s can be cleaned" % cleanable)
 
         return result
@@ -370,20 +351,22 @@ class GitDir:
     def _git_command(self, args):
         """
         :param list|tuple args: Git command + args to use
-        :return list, str: Full git invocation + human friendle representation
+        :return list, str: Full git invocation + human friendly representation
         """
         cmd = ["git"]
         if args and args[0] == "clone":
             args_represented = "git %s" % " ".join(args)
+
         else:
             args_represented = "git -C %s %s" % (runez.short(self.path), " ".join(args))
             cmd.extend(["-C", self.path])
+
         cmd.extend(args)
         return cmd, args_represented
 
     def run_raw_git_command(self, *args):
         """
-        :param *args: Execute git command with provided args, don't capture its output, but let it show through stdout/stderr
+        :param args: Execute git command with provided args, don't capture its output, but let it show through stdout/stderr
         :return GitRunReport: Report
         """
         cmd, pretty_args = self._git_command(args)
@@ -393,11 +376,12 @@ class GitDir:
         proc.communicate()
         if proc.returncode:
             return GitRunReport(problem="git exited with code %s" % proc.returncode)
+
         return GitRunReport()
 
     def run_git_command(self, *args):
         """
-        :param *args: Execute git command with provided args
+        :param args: Execute git command with provided args
         :return str, GitRunReport: Output from git command + report on eventual error
         """
         cmd, pretty_args = self._git_command(args)
@@ -408,8 +392,10 @@ class GitDir:
         error = runez.decode(error)
         if proc.returncode == 0:
             return output, GitRunReport()
+
         if not error:
             return output, GitRunReport(problem="git exited with code %s" % proc.returncode)
+
         return output, GitRunReport(problem=shortened_message(error))
 
     def fallback_branch(self):
@@ -458,8 +444,10 @@ class GitDir:
         report = self.report(bare=True)
         if report.has_problems:
             return report.cant_pull()
+
         if self.status.modified:
             return GitRunReport().cant_pull("pending changes")
+
         if self.status.report.has_problems:
             return GitRunReport(problem=self.status.report).cant_pull()
 
@@ -471,6 +459,7 @@ class GitDir:
             branch = self.fallback_branch()
             if not branch:
                 return GitRunReport(problem="can't determine fallback branch")
+
             output, error = self.run_git_command("checkout", branch)
             if error.has_problems:
                 self.reset_cached_properties(partial=True)
@@ -482,12 +471,15 @@ class GitDir:
         if error.has_problems:
             if "following untracked" in error:
                 return GitRunReport().cant_pull("untracked files would be overwritten")
+
             if "Repository not found" in error:
                 return GitRunReport().cant_pull("repository not found")
+
             return error.cant_pull()
 
         if "up to date" in output or "up-to-date" in output:
             return GitRunReport(progress="")
+
         if "Fast-forward" in output:
             return GitRunReport(progress="pulled successfully")
 
@@ -496,6 +488,7 @@ class GitDir:
         lines = []
         if output:
             lines.extend(s.strip() for s in output.strip().split("\n") if s.strip())
+
         lines.append(error.representation(progress=False, note=False).strip())
         output = lines[0] if lines else "no output"
         return GitRunReport(note="pull may have been unsuccessful (%s)" % output)
@@ -523,9 +516,9 @@ class GitDir:
             try:
                 last_fetch = os.path.getmtime(os.path.join(os.path.join(self.path, ".git"), name))
                 return int(time.time() - last_fetch)
+
             except OSError:
                 pass
-        return None
 
     @cached_property
     def status(self):
@@ -558,6 +551,7 @@ class GitDir:
             remote = self.config.tracking_remote.get(name)
             if not remote or remote not in self.branches.by_remote or name not in self.branches.by_remote[remote]:
                 result.append(name)
+
         return result
 
     @cached_property
@@ -580,6 +574,7 @@ class GitDir:
             tracking = self.config.tracking_remote.get(name)
             if tracking == remote:
                 result.add(name)
+
         return result
 
     @cached_property
@@ -594,12 +589,15 @@ class GitDir:
         default = self.branches.default_branches.get("origin")
         if default:
             aspect._command += " %s" % default
+
         aspect.reload()
         for remote, branches in aspect.by_remote.items():
             url = self.config.remotes.get(remote)
             if not url or url.protocol != "ssh":
                 continue
+
             result.update(["%s/%s" % (remote, branch) for branch in branches if branch not in self.special_branches])
+
         return result
 
 
@@ -621,13 +619,17 @@ class GitAspect:
         for k in self.__class__.__dict__:
             if k.startswith("_"):
                 continue
+
             v = getattr(self.__class__, k, None)
             if v is None or isinstance(v, (property, cached_property)) or callable(v):
                 continue
+
             if isinstance(v, collections.defaultdict):
                 v = collections.defaultdict(v.default_factory)
+
             else:
                 v = v.__class__()
+
             setattr(self, k, v)
 
         if not self._parent.is_git_checkout:
@@ -636,6 +638,7 @@ class GitAspect:
         output, error = self._parent.run_git_command(*self._command.split())
         if error.has_problems:
             LOG.debug("Prev git command had error output: [%s]", error.representation())
+
         self._lines = [line for line in output.split("\n") if line.strip()]
         for line in self._lines:
             self._process_line(line)
@@ -658,7 +661,7 @@ class GitBranches(GitAspect):
 
     @property
     def shortened_current_branch(self):
-        return str(self.current or 'HEAD').replace('feature/', 'f/').replace('bugix/', 'b/')
+        return str(self.current or 'HEAD').replace('feature/', 'f/').replace('bugfix/', 'b/')
 
     def _process_line(self, line):
         if not line or len(line) <= 3 or line[0] not in ' *' or line[1] != ' ':
@@ -674,6 +677,7 @@ class GitBranches(GitAspect):
                 first = name[:i]
                 if first.endswith('/HEAD'):
                     default = name = name[i + 4:]
+
             except ValueError:
                 pass
 
@@ -681,12 +685,14 @@ class GitBranches(GitAspect):
             self.by_remote[remote].add(name)
             if default:
                 self.default_branches[remote] = name
+
             return
 
         if name.startswith('('):
             name = name[1:]
             if name.endswith(')'):
                 name = name[:-1]
+
             name, _, problem = name.partition(' ')
             self.report.add(note='%s %s' % (name, problem))
 
@@ -711,8 +717,10 @@ class GitConfig(GitAspect):
         """
         if self.origin:
             return self.origin.name
+
         for r in self.remotes.values():
             return r.name
+
         return None
 
     def _process_line(self, line):
@@ -726,6 +734,7 @@ class GitConfig(GitAspect):
                 self.remotes[k] = url
                 if k == "origin":
                     self.origin = url
+
         elif k.startswith("branch."):
             if k.endswith(".remote"):
                 self.tracking_remote[k[7:-7]] = v
@@ -746,44 +755,104 @@ class GitStatus(GitAspect):
         result = []
         if self.report._problem:
             result.append(runez.red(" ".join(self.report._problem)))
+
         if self.modified:
             result.append(runez.red(runez.plural(self.modified, "diff")))
+
         if self.untracked:
             result.append(runez.orange("%s untracked" % len(self.untracked)))
+
         if self.report._note:
             result.append(runez.purple(" ".join(self.report._note)))
+
         if not self.report._problem and not self.report._note and self._parent.age is not None:
             message = "up to date"
             if self._parent.age > FRESHNESS_THRESHOLD:
                 message += "*"
+
             result.append(runez.teal(message))
+
         return ", ".join(result)
 
     def _process_line(self, line):
         if line[0] == "#":
             if "..." not in line:
                 return
+
             m = RE_BRANCH_STATUS.match(line)
             if not m:
                 LOG.warning("Unrecognised git status line: '%s'", line)
                 return
+
             text = str(m.group(6) or "")  # behind, ahead, or gone
             if not text:
                 return
+
             for message in text.split(","):
                 message = message.strip()
                 if "gone" in message:
                     line = line.lower()
                     if "no commits yet" in line or "initial commit on" in line:
                         self.report.add(note="no commits yet")
+
                     else:
                         self.report.add(problem="remote branch gone")
+
                 elif "ahead" in message:
                     self.report.add(problem=message)
+
                 else:
                     self.report.add(note=message)
+
             return
+
         if line[0] == "?":
             self.untracked.append(line)
             return
+
         self.modified.append(line)
+
+
+def _report_sorter(enum):
+    """
+    :param tuple(int, str) enum: Tuple from enumerate()
+    :return int: Value to use for sorting messages in this report
+    """
+    index, message = enum
+    if message[0] == '<':
+        return -enum[0]                 # '<' makes message sort towards front, but keeping order with other such prefixed messages
+
+    if message[0] == '>':
+        return 1000000 + enum[0]        # '>' makes message sort towards end
+
+    return enum[0]                  # Non-prefixed message stay where they were
+
+
+def _add_sorted(result, target, color, n, max_chars):
+    """
+    :param list(str) result: Where to accumulate sorted report
+    :param list(str) target: Target to sort, respecting '<' and '>' prefixing
+    :param color: Optional color to use
+    :param int n: How many chars were consumed so far
+    :param int|None max_chars: Maximum number of characters to yield
+    :return int: Number of chars accumulated
+    """
+    if max_chars and n > max_chars:
+        # We already reached limit
+        return n
+
+    items = []
+    for message in (s.lstrip("<>") for i, s in sorted(enumerate(target), key=_report_sorter)):
+        size = len(message)
+        if max_chars:
+            remaining = max_chars - n
+            if remaining < size:
+                items.append(message[:remaining])
+                n += size
+                break
+
+        n += size
+        items.append(message)
+
+    result.extend(color(s) for s in items)
+    return n
