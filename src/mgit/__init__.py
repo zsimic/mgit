@@ -8,7 +8,7 @@ from cached_property import cached_property
 from mgit.git import GitDir, GitRunReport
 
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 LOG = logging.getLogger(__name__)
 
 
