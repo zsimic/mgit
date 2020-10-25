@@ -39,28 +39,34 @@ Example usage
     ~/dev/github: mgit
     ~/dev/github: 4 github/zsimic
          mgit: [master] up to date
-      pickley: [master] 1 diff, up to date*  last fetch 3w 4d ago
-        runez: [master] up to date*  last fetch 3w 4d ago
-    setupmeta: [master] up to date*  last fetch 4d 23h ago
+      pickley: [master] 1 diff, up to date*  last fetch 1w 4d ago
+        runez: [master] up to date*  last fetch 1w 4d ago
+    setupmeta: [master] up to date*  last fetch 3d 23h ago
 
 
-Here we can see that I have 4 repos in ``~/dev/github`` (and all 4 come from ``github/zsimic``),
-3 of them haven't been fetched in a while.
+Here we can see that:
+
+- There are 4 git repos in folder ``~/dev/github``
+
+- All 4 come from ``github/zsimic``
+
+- 3 of them haven't been fetched in a while
+
 We can fetch them all at once with ``--fetch`` (or ``-f``)::
 
     ~/dev/github: mgit --fetch
     ~/dev/github: 4 github/zsimic
          mgit: [master] up to date
       pickley: [master] 1 diff, up to date
-        runez: [master] up to date
+        runez: [master] behind 2
     setupmeta: [master] up to date
 
 
-Now all projects have been refreshed, and we can see there's nothing new
-(otherwise we'd see a mention of the form ``2 commits behind``).
+Now all projects have been refreshed, and we can see there's nothing new in 2 of them,
+but one is 2 commits behind (ie: 2 commits are on the remote, not pulled yet).
 The output also shows that one of the projects has uncommitted files.
 
-Modified files are shown if only one project is in scope, for example::
+Modified files are shown (by default) if only one project is in scope, for example::
 
     ~/dev/github: mgit pickley
     pickley: [master] 1 diff, up to date
@@ -68,7 +74,7 @@ Modified files are shown if only one project is in scope, for example::
 
 
 Above, we can see that the modified file in question is ``tox.ini`` in that project.
-We can get the same effect using the ``-verbose`` (or ``-v``) flag,
+We can get the same effect using the ``--verbose`` (or ``-v``) flag,
 like for example with 2 projects with modified files::
 
     ~/dev/github: mgit -v
@@ -107,11 +113,14 @@ Synopsis::
 Installation
 ============
 
-Easiest way to get mgit is via pickley_ or pipsi_::
+Easiest way to get mgit is via pickley_ or pipx_::
 
     pickley install mgit
 
-    pipsi install mgit
+
+or::
+
+    pipx install mgit
 
 
 You can also compile from source::
@@ -119,9 +128,13 @@ You can also compile from source::
     git clone https://github.com/zsimic/mgit.git
     cd mgit
     tox -e venv
+
+    .venv/bin/mgit --help
+
     source .venv/bin/activate
+    mgit --help
 
 
-.. _pickley: https://pypi.org/simple/pickley/
+.. _pickley: https://pypi.org/project/pickley/
 
-.. _pipsi: https://pypi.org/simple/pipsi/
+.. _pipx: https://pypi.org/project/pipx/
