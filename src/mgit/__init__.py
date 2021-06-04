@@ -7,7 +7,6 @@ import runez
 from mgit.git import GitDir, GitRunReport
 
 
-__version__ = "1.2.1"
 LOG = logging.getLogger(__name__)
 
 
