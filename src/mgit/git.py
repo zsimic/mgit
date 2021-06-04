@@ -12,7 +12,6 @@ except ImportError:
     from urllib.parse import urlparse
 
 import runez
-from cached_property import cached_property
 
 
 LOG = logging.getLogger(__name__)
@@ -23,30 +22,6 @@ GIT_ERROR_PREFIXES = {"git", "error", "fatal"}
 
 RE_GITHUB_SSH = re.compile(r"^git@([^:]+):(\w+)/([^/]+)$")
 RE_BRANCH_STATUS = re.compile(r"^## (.+)\.\.\.(([^/]+)/)?([^ ]+)\s*(\[(.+)])?$")
-
-
-def reset_cached_properties(obj, names=None):
-    """
-    :param obj: Object which cached properties to reset
-    :param str|None names: Optional list of cached property names to reset (all properties if no 'names' given)
-    """
-    if not obj:
-        return
-
-    if names:
-        if hasattr(names, "startswith") and names.startswith("-"):
-            names = set(obj.__class__.__dict__) - set(names[1:].split())
-
-        elif hasattr(names, "split"):
-            names = names.split()
-
-    else:
-        names = obj.__class__.__dict__
-
-    for k in names:
-        v = getattr(obj.__class__, k, None)
-        if isinstance(v, cached_property) and k in obj.__dict__:
-            del obj.__dict__[k]
 
 
 def is_valid_branch_name(name):
@@ -411,13 +386,9 @@ class GitDir:
 
         return self.branches.default_branches.get("origin")
 
-    def reset_cached_properties(self, partial=False):
+    def reset_cached_properties(self):
         """Reset cached properties that may have changed after a fetch or pull"""
-        if partial:
-            reset_cached_properties(self, "-config")
-
-        else:
-            reset_cached_properties(self)
+        runez.cached_property.reset(self)
 
     def fetch(self, age=30):
         """
@@ -433,7 +404,7 @@ class GitDir:
                 return GitRunReport()
 
         _, error = self.run_git_command("fetch", "--all", "--prune")
-        self.reset_cached_properties(partial=True)
+        self.reset_cached_properties()
         return error
 
     def pull(self):
@@ -462,11 +433,11 @@ class GitDir:
 
             output, error = self.run_git_command("checkout", branch)
             if error.has_problems:
-                self.reset_cached_properties(partial=True)
+                self.reset_cached_properties()
                 return error
 
         output, error = self.run_git_command("pull", "--rebase")
-        self.reset_cached_properties(partial=True)
+        self.reset_cached_properties()
 
         if error.has_problems:
             if "following untracked" in error:
@@ -507,7 +478,7 @@ class GitDir:
 
         return GitRunReport(progress="cloned successfully")
 
-    @cached_property
+    @runez.cached_property
     def age(self):
         """
         :return int|None: Elapsed time in seconds since last fetch
@@ -520,28 +491,28 @@ class GitDir:
             except OSError:
                 pass
 
-    @cached_property
+    @runez.cached_property
     def status(self):
         """
         :return GitStatus: Parsed info from 'git status --porcelain --branch'
         """
         return GitStatus(self)
 
-    @cached_property
+    @runez.cached_property
     def config(self):
         """
         :return GitConfig: Parsed info from 'git config --list'
         """
         return GitConfig(self)
 
-    @cached_property
+    @runez.cached_property
     def branches(self):
         """
         :return GitConfig: Parsed info from 'git branch --list --all'
         """
         return GitBranches(self)
 
-    @cached_property
+    @runez.cached_property
     def orphan_branches(self):
         """
         :return list(str): Local branch names that were deleted on their corresponding remote
@@ -554,7 +525,7 @@ class GitDir:
 
         return result
 
-    @cached_property
+    @runez.cached_property
     def special_branches(self):
         result = set(self.branches.default_branches.values())
         result.add("HEAD")
@@ -563,7 +534,7 @@ class GitDir:
         result.add("prod")
         return result
 
-    @cached_property
+    @runez.cached_property
     def local_cleanable_branches(self):
         """
         :return set: Local branches that can be cleaned
@@ -577,7 +548,7 @@ class GitDir:
 
         return result
 
-    @cached_property
+    @runez.cached_property
     def remote_cleanable_branches(self):
         """
         :return set: Remote branches that can be cleaned
@@ -621,7 +592,7 @@ class GitAspect:
                 continue
 
             v = getattr(self.__class__, k, None)
-            if v is None or isinstance(v, (property, cached_property)) or callable(v):
+            if v is None or isinstance(v, (property, runez.cached_property)) or callable(v):
                 continue
 
             if isinstance(v, collections.defaultdict):
@@ -710,7 +681,7 @@ class GitConfig(GitAspect):
     tracking_remote = {}                        # Remotes that each local branch is tracking
     content = {}
 
-    @cached_property
+    @runez.cached_property
     def repo_name(self):
         """
         :return str: Most significant repository name

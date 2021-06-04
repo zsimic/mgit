@@ -3,7 +3,6 @@ import logging
 import os
 
 import runez
-from cached_property import cached_property
 
 from mgit.git import GitDir, GitRunReport
 
@@ -207,7 +206,7 @@ class GitCheckout:
 
         return self._prefs
 
-    @cached_property
+    @runez.cached_property
     def name(self):
         """
         :return str: Basename of local git folder + remote basename if it differs
@@ -217,11 +216,11 @@ class GitCheckout:
 
         return "%s (%s)" % (self.basename, self.git.config.repo_name)
 
-    @cached_property
+    @runez.cached_property
     def origin_project(self):
         return RemoteProject.from_url(self.git.config.origin)
 
-    @cached_property
+    @runez.cached_property
     def aligned_name(self):
         name = self.name
         if self.parent and self.parent.prefs.name_size:
@@ -372,7 +371,7 @@ class ProjectDir:
         else:
             self.prefs.name_size = None
 
-    @cached_property
+    @runez.cached_property
     def header(self):
         result = "%s:" % runez.purple(runez.short(self.path))
 
