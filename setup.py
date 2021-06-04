@@ -14,6 +14,7 @@ if __name__ == "__main__":
                 "mgit = mgit.cli:main",
             ],
         },
+        python_requires=">=3.6",
         classifiers=[
             "Development Status :: 4 - Beta",
             "Environment :: Console",
@@ -22,8 +23,6 @@ if __name__ == "__main__":
             "Operating System :: POSIX",
             "Operating System :: Unix",
             "Programming Language :: Python",
-            "Programming Language :: Python :: 2",
-            "Programming Language :: Python :: 2.7",
             "Programming Language :: Python :: 3",
             "Programming Language :: Python :: 3.6",
             "Programming Language :: Python :: 3.7",

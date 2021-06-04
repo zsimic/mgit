@@ -8,7 +8,7 @@ import mgit
 
 def test_edge_cases():
     assert mgit.git_parent_path("/") is None
-    assert mgit.git_parent_path(runez.log.tests_path()) == runez.log.project_path()
+    assert mgit.git_parent_path(runez.SYS_INFO.dev_tests_location) == runez.SYS_INFO.dev_project_location
 
     prefs = mgit.MgitPreferences(all=True, fetch=False, pull=False, short=None)
     assert str(prefs) == "align all !fetch !pull !verbose"
@@ -27,7 +27,7 @@ def test_edge_cases():
 def test_usage(cli):
     cli.expect_success("--help")
     cli.expect_success("--version")
-    cli.expect_failure("--foo", "no such option")
+    cli.expect_failure("--foo", "No such option")
 
 
 def test_status(cli):
@@ -40,10 +40,11 @@ def test_status(cli):
     cli.expect_success(cli.tests_folder, "no git folders")
 
     # Status on project folder should succeed (we're not calling fetch)
-    cli.expect_success(cli.project_folder, "mgit")
-    with runez.CurrentFolder(cli.project_folder):
+    project = runez.SYS_INFO.dev_project_location
+    cli.expect_success(project, "mgit")
+    with runez.CurrentFolder(project):
         cli.run()
         assert cli.succeeded
-        assert "%s:" % os.path.basename(cli.project_folder) in cli.logged.stdout
+        assert "%s:" % os.path.basename(project) in cli.logged.stdout
 
         cli.expect_success("-cs")
