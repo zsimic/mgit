@@ -8,7 +8,7 @@ import mgit
 
 def test_edge_cases():
     assert mgit.git_parent_path("/") is None
-    assert mgit.git_parent_path(runez.SYS_INFO.dev_tests_location) == runez.SYS_INFO.dev_project_location
+    assert mgit.git_parent_path(runez.DEV.tests_folder) == runez.DEV.project_folder
 
     prefs = mgit.MgitPreferences(all=True, fetch=False, pull=False, short=None)
     assert str(prefs) == "align all !fetch !pull !verbose"
@@ -40,7 +40,7 @@ def test_status(cli):
     cli.expect_success(cli.tests_folder, "no git folders")
 
     # Status on project folder should succeed (we're not calling fetch)
-    project = runez.SYS_INFO.dev_project_location
+    project = runez.DEV.project_folder
     cli.expect_success(project, "mgit")
     with runez.CurrentFolder(project):
         cli.run()
