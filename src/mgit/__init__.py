@@ -6,7 +6,6 @@ import runez
 
 from mgit.git import GitDir, GitRunReport
 
-
 LOG = logging.getLogger(__name__)
 
 
@@ -79,7 +78,7 @@ class MgitPreferences:
 
     def __repr__(self):
         result = [self._value_representation(k) for k in sorted(self.__dict__)]
-        return ' '.join(s for s in result if s is not None)
+        return " ".join(s for s in result if s is not None)
 
     def _value_representation(self, name):
         value = getattr(self, name, None)

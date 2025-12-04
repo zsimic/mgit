@@ -18,8 +18,8 @@ def test_invalid_branch_names():
 def check_url(url, protocol, hostname, username, relative_path, repo, name):
     u = GitURL()
     u.set(url)
-    assert str(u) == (url or '')
-    assert u.url == (url or '')
+    assert str(u) == (url or "")
+    assert u.url == (url or "")
     assert u.protocol == protocol
     assert u.hostname == hostname
     assert u.username == username

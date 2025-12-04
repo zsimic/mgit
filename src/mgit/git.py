@@ -13,7 +13,6 @@ except ImportError:
 
 import runez
 
-
 LOG = logging.getLogger(__name__)
 FETCH_AGE_FILES = ["FETCH_HEAD", "HEAD"]
 FRESHNESS_THRESHOLD = 12 * runez.date.SECONDS_IN_ONE_HOUR
@@ -621,10 +620,10 @@ class GitAspect:
 class GitBranches(GitAspect):
     """Branch info"""
 
-    _command = 'branch --list --all'
-    _remote_prefix = 'remotes/'
+    _command = "branch --list --all"
+    _remote_prefix = "remotes/"
 
-    current = ''                                    # Current local branch
+    current = ""                                    # Current local branch
     local = set()                                   # Local branches
     by_remote = collections.defaultdict(set)        # Branches by remote (usually origin and optionally upstream)
     default_branches = {}                           # Default branch per remote
@@ -632,10 +631,10 @@ class GitBranches(GitAspect):
 
     @property
     def shortened_current_branch(self):
-        return str(self.current or 'HEAD').replace('feature/', 'f/').replace('bugfix/', 'b/')
+        return str(self.current or "HEAD").replace("feature/", "f/").replace("bugfix/", "b/")
 
     def _process_line(self, line):
-        if not line or len(line) <= 3 or line[0] not in ' *' or line[1] != ' ':
+        if not line or len(line) <= 3 or line[0] not in " *" or line[1] != " ":
             LOG.warning("Internal error: malformed branch --list line: %s", line)
             return
 
@@ -644,38 +643,38 @@ class GitBranches(GitAspect):
             name = name[len(self._remote_prefix):]
             default = None
             try:
-                i = name.index(' -> ')
+                i = name.index(" -> ")
                 first = name[:i]
-                if first.endswith('/HEAD'):
+                if first.endswith("/HEAD"):
                     default = name = name[i + 4:]
 
             except ValueError:
                 pass
 
-            remote, _, name = name.partition('/')
+            remote, _, name = name.partition("/")
             self.by_remote[remote].add(name)
             if default:
                 self.default_branches[remote] = name
 
             return
 
-        if name.startswith('('):
+        if name.startswith("("):
             name = name[1:]
-            if name.endswith(')'):
+            if name.endswith(")"):
                 name = name[:-1]
 
-            name, _, problem = name.partition(' ')
-            self.report.add(note='%s %s' % (name, problem))
+            name, _, problem = name.partition(" ")
+            self.report.add(note="%s %s" % (name, problem))
 
         self.local.add(name)
-        if line[0] == '*':
+        if line[0] == "*":
             self.current = name
 
 
 class GitConfig(GitAspect):
     """Remote info"""
 
-    _command = 'config --list'
+    _command = "config --list"
     origin = GitURL()                           # URL to remote called 'origin'
     remotes = {}                                # GitURL by remote name map
     tracking_remote = {}                        # Remotes that each local branch is tracking
@@ -790,10 +789,10 @@ def _report_sorter(enum):
     :return int: Value to use for sorting messages in this report
     """
     index, message = enum
-    if message[0] == '<':
+    if message[0] == "<":
         return -enum[0]                 # '<' makes message sort towards front, but keeping order with other such prefixed messages
 
-    if message[0] == '>':
+    if message[0] == ">":
         return 1000000 + enum[0]        # '>' makes message sort towards end
 
     return enum[0]                  # Non-prefixed message stay where they were
