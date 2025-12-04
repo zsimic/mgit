@@ -28,7 +28,7 @@ def is_valid_branch_name(name):
     :param str|None name: Branch name to validate
     :return bool: True if branch name appears valid, as per https://wincent.com/wiki/Legal_Git_branch_names
     """
-    if not name or name[0] == "." or ".." in name or name.endswith("/") or name.endswith(".lock"):
+    if not name or name[0] == "." or ".." in name or name.endswith(("/", ".lock")):
         return False
 
     for char in name:
@@ -538,7 +538,7 @@ class GitDir:
         """
         :return set: Local branches that can be cleaned
         """
-        result = set(name for name in self.orphan_branches if name not in self.special_branches)
+        result = {name for name in self.orphan_branches if name not in self.special_branches}
         for branch in self.remote_cleanable_branches:
             remote, _, name = branch.partition("/")
             tracking = self.config.tracking_remote.get(name)
@@ -623,10 +623,10 @@ class GitBranches(GitAspect):
     _command = "branch --list --all"
     _remote_prefix = "remotes/"
 
-    current = ""                                    # Current local branch
-    local = set()                                   # Local branches
-    by_remote = collections.defaultdict(set)        # Branches by remote (usually origin and optionally upstream)
-    default_branches = {}                           # Default branch per remote
+    current = ""  # Current local branch
+    local = set()  # Local branches
+    by_remote = collections.defaultdict(set)  # Branches by remote (usually origin and optionally upstream)
+    default_branches = {}  # Default branch per remote
     report = GitRunReport()
 
     @property
@@ -640,13 +640,13 @@ class GitBranches(GitAspect):
 
         name = line[2:]
         if name.startswith(self._remote_prefix):
-            name = name[len(self._remote_prefix):]
+            name = name[len(self._remote_prefix) :]
             default = None
             try:
                 i = name.index(" -> ")
                 first = name[:i]
                 if first.endswith("/HEAD"):
-                    default = name = name[i + 4:]
+                    default = name = name[i + 4 :]
 
             except ValueError:
                 pass
@@ -675,9 +675,9 @@ class GitConfig(GitAspect):
     """Remote info"""
 
     _command = "config --list"
-    origin = GitURL()                           # URL to remote called 'origin'
-    remotes = {}                                # GitURL by remote name map
-    tracking_remote = {}                        # Remotes that each local branch is tracking
+    origin = GitURL()  # URL to remote called 'origin'
+    remotes = {}  # GitURL by remote name map
+    tracking_remote = {}  # Remotes that each local branch is tracking
     content = {}
 
     @runez.cached_property
@@ -790,12 +790,12 @@ def _report_sorter(enum):
     """
     index, message = enum
     if message[0] == "<":
-        return -enum[0]                 # '<' makes message sort towards front, but keeping order with other such prefixed messages
+        return -enum[0]  # '<' makes message sort towards front, but keeping order with other such prefixed messages
 
     if message[0] == ">":
-        return 1000000 + enum[0]        # '>' makes message sort towards end
+        return 1000000 + enum[0]  # '>' makes message sort towards end
 
-    return enum[0]                  # Non-prefixed message stay where they were
+    return enum[0]  # Non-prefixed message stay where they were
 
 
 def _add_sorted(result, target, color, n, max_chars):

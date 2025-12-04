@@ -65,13 +65,13 @@ def print_modified(items, color1, color2=None):
 class MgitPreferences:
     """Various prefs"""
 
-    name_size = None                                # How many chars to align names when displaying list of checkouts
-    align = True                                    # Whether to align names or not
-    verbose = False                                 # Show verbose output
-    all = False                                     # Show all entries, including missing/invalid checkout folders
-    fetch = False                                   # Auto-fetch before showing status
-    pull = False                                    # Auto-pull before showing status
-    inspect_remotes = False                         # Inspect remote branches to report cleanable (slower)
+    name_size = None  # How many chars to align names when displaying list of checkouts
+    align = True  # Whether to align names or not
+    verbose = False  # Show verbose output
+    all = False  # Show all entries, including missing/invalid checkout folders
+    fetch = False  # Auto-fetch before showing status
+    pull = False  # Auto-pull before showing status
+    inspect_remotes = False  # Inspect remote branches to report cleanable (slower)
 
     def __init__(self, **kwargs):
         self.update(**kwargs)
@@ -300,13 +300,13 @@ class ProjectDir:
         :param str path: Path to folder
         :param MgitPreferences|None prefs: Display prefs
         """
-        self.path = path                                # Path to folder to examine
-        self.prefs = prefs or MgitPreferences()         # Preferences on how to output result
-        self.checkouts = []                             # Actual git checkouts in 'path'
-        self.projects = collections.defaultdict(set)    # Seen remotes
-        self.predominant = None                         # Predominant remote, if any
-        self.additional = None                          # Additional projects (sorted by checkouts, descending)
-        self.stash_projects = {}                        # Corresponding projects from stash, when applicable
+        self.path = path  # Path to folder to examine
+        self.prefs = prefs or MgitPreferences()  # Preferences on how to output result
+        self.checkouts = []  # Actual git checkouts in 'path'
+        self.projects = collections.defaultdict(set)  # Seen remotes
+        self.predominant = None  # Predominant remote, if any
+        self.additional = None  # Additional projects (sorted by checkouts, descending)
+        self.stash_projects = {}  # Corresponding projects from stash, when applicable
         self.scan()
 
     def __repr__(self):
