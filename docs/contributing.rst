@@ -10,7 +10,10 @@ To get going locally, simply do this::
     git clone https://github.com/zsimic/mgit.git
     cd mgit
 
-    tox -e venv
+    uv venv
+    uv pip install -r requirements.txt
+    uv pip install -r tests/requirements.txt
+    uv pip install -e .
 
     # You have a venv now in ./.venv, use it, open it with pycharm etc
     source .venv/bin/activate
@@ -24,12 +27,11 @@ To get going locally, simply do this::
 Running the tests
 =================
 
-To run the tests, simply run ``tox``, this will run tests against all python versions you have locally installed.
-You can use pyenv_ for example to get python installations.
+To run the tests, simply run ``tox``.
 
 Run:
 
-* ``tox -e py38`` (for example) to limit test run to only one python version.
+* ``tox -e py314`` (for example) to limit test run to only one python version.
 
 * ``tox -e style`` to run style checks only
 

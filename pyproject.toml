@@ -1,6 +1,48 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+local_scheme = "dirty-tag"
+
+[project]
+name = "mgit"
+authors = [
+    {name = "Zoran Simic", email = "zoran@simicweb.com"},
+]
+description = "Fetch collections of git projects"
+readme = "README.rst"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX",
+    "Operating System :: Unix",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "click~=8.3",
+    "runez~=5.3",
+]
+dynamic = ["version"]
+
+[project.scripts]
+mgit = "mgit.cli:main"
+
+[project.urls]
+Source = "https://github.com/zsimic/mgit"
+
 
 [tool.ruff]
 cache-dir = ".tox/.ruff_cache"
