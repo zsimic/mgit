@@ -11,9 +11,7 @@ To get going locally, simply do this::
     cd mgit
 
     uv venv
-    uv pip install -r requirements.txt
-    uv pip install -r tests/requirements.txt
-    uv pip install -e .
+    uv pip install -r tests/requirements.txt -e .
 
     # You have a venv now in ./.venv, use it, open it with pycharm etc
     source .venv/bin/activate
