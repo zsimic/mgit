@@ -528,9 +528,8 @@ class GitDir:
     def special_branches(self):
         result = set(self.branches.default_branches.values())
         result.add("HEAD")
+        result.add("main")
         result.add("master")
-        result.add("test")
-        result.add("prod")
         return result
 
     @runez.cached_property

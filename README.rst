@@ -9,7 +9,7 @@ Fetch collections of git projects
     :target: https://github.com/zsimic/mgit/actions
     :alt: Tested with Github Actions
 
-.. image:: https://codecov.io/gh/zsimic/mgit/branch/master/graph/badge.svg
+.. image:: https://codecov.io/gh/zsimic/mgit/branch/main/graph/badge.svg
     :target: https://codecov.io/gh/zsimic/mgit
     :alt: Test code codecov
 
@@ -38,10 +38,10 @@ Example usage
 
     ~/dev/github: mgit
     ~/dev/github: 4 github/zsimic
-         mgit: [master] up to date
-      pickley: [master] 1 diff, up to date*  last fetch 1w 4d ago
-        runez: [master] up to date*  last fetch 1w 4d ago
-    setupmeta: [master] up to date*  last fetch 3d 23h ago
+         mgit: [main] up to date
+      pickley: [main] 1 diff, up to date*  last fetch 1w 4d ago
+        runez: [main] up to date*  last fetch 1w 4d ago
+    setupmeta: [main] up to date*  last fetch 3d 23h ago
 
 
 Here we can see that:
@@ -56,10 +56,10 @@ We can fetch them all at once with ``--fetch`` (or ``-f``)::
 
     ~/dev/github: mgit --fetch
     ~/dev/github: 4 github/zsimic
-         mgit: [master] up to date
-      pickley: [master] 1 diff, up to date
-        runez: [master] behind 2
-    setupmeta: [master] up to date
+         mgit: [main] up to date
+      pickley: [main] 1 diff, up to date
+        runez: [main] behind 2
+    setupmeta: [main] up to date
 
 
 Now all projects have been refreshed, and we can see there's nothing new in 2 of them,
@@ -69,7 +69,7 @@ The output also shows that one of the projects has uncommitted files.
 Modified files are shown (by default) if only one project is in scope, for example::
 
     ~/dev/github: mgit pickley
-    pickley: [master] 1 diff, up to date
+    pickley: [main] 1 diff, up to date
        M tox.ini
 
 
@@ -79,12 +79,12 @@ like for example with 2 projects with modified files::
 
     ~/dev/github: mgit -v
     ~/dev/github: 4 github/zsimic
-    mgit: [master] 1 diff, up to date
+    mgit: [main] 1 diff, up to date
        M README.rst
-    pickley: [master] 1 diff, up to date
+    pickley: [main] 1 diff, up to date
        M tox.ini
-    runez: [master] up to date
-    setupmeta: [master] up to date
+    runez: [main] up to date
+    setupmeta: [main] up to date
 
 
 Synopsis::
