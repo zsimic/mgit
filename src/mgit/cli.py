@@ -18,7 +18,6 @@ import runez
 from mgit import get_target, GitCheckout
 from mgit.git import GitRunReport
 
-
 LOG = logging.getLogger(__name__)
 VALID_CLEAN_ACTIONS = "show local remote all reset".split()
 
@@ -123,7 +122,7 @@ def clean_show(target):
 
     else:
         for branch in target.git.local_cleanable_branches:
-            print("  %s branch %s can be cleaned" % (runez.bold("local"), runez.bold(branch)))
+            print("  {} branch {} can be cleaned".format(runez.bold("local"), runez.bold(branch)))
 
     if not target.git.remote_cleanable_branches:
         print("  No remote branches can be cleaned")
@@ -175,7 +174,7 @@ def handle_single_clean(target, what):
                 print("%s cleaned" % runez.plural(cleaned, "remote branch"))
 
             else:
-                print("%s/%s remote branches cleaned" % (cleaned, total))
+                print(f"{cleaned}/{total} remote branches cleaned")
 
             target.git.reset_cached_properties()
             if what == "all":
@@ -206,7 +205,7 @@ def handle_single_clean(target, what):
                 print(runez.bold("%s cleaned" % runez.plural(cleaned, "local branch")))
 
             else:
-                print(runez.orange("%s/%s local branches cleaned" % (cleaned, total)))
+                print(runez.orange(f"{cleaned}/{total} local branches cleaned"))
 
             target.git.reset_cached_properties()
 

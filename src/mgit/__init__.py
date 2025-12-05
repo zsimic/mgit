@@ -6,7 +6,6 @@ import runez
 
 from mgit.git import GitDir, GitRunReport
 
-
 LOG = logging.getLogger(__name__)
 
 
@@ -55,31 +54,31 @@ def print_modified(items, color1, color2=None):
     for item in items:
         state = item[0:2]
         if color2:
-            state = "%s%s" % (color1(item[0]), color2(item[1]))
+            state = f"{color1(item[0])}{color2(item[1])}"
 
         elif color1:
             state = color1(state)
 
-        print("  %s %s" % (state, item[3:]))
+        print(f"  {state} {item[3:]}")
 
 
 class MgitPreferences:
     """Various prefs"""
 
-    name_size = None                                # How many chars to align names when displaying list of checkouts
-    align = True                                    # Whether to align names or not
-    verbose = False                                 # Show verbose output
-    all = False                                     # Show all entries, including missing/invalid checkout folders
-    fetch = False                                   # Auto-fetch before showing status
-    pull = False                                    # Auto-pull before showing status
-    inspect_remotes = False                         # Inspect remote branches to report cleanable (slower)
+    name_size = None  # How many chars to align names when displaying list of checkouts
+    align = True  # Whether to align names or not
+    verbose = False  # Show verbose output
+    all = False  # Show all entries, including missing/invalid checkout folders
+    fetch = False  # Auto-fetch before showing status
+    pull = False  # Auto-pull before showing status
+    inspect_remotes = False  # Inspect remote branches to report cleanable (slower)
 
     def __init__(self, **kwargs):
         self.update(**kwargs)
 
     def __repr__(self):
         result = [self._value_representation(k) for k in sorted(self.__dict__)]
-        return ' '.join(s for s in result if s is not None)
+        return " ".join(s for s in result if s is not None)
 
     def _value_representation(self, name):
         value = getattr(self, name, None)
@@ -92,7 +91,7 @@ class MgitPreferences:
         if value is False:
             return "!%s" % name
 
-        return "%s=%s" % (name, value)
+        return f"{name}={value}"
 
     def set_short(self, value):
         """
@@ -133,7 +132,7 @@ class RemoteProject:
         self.name = url.repo or "unknown"
 
     def __repr__(self):
-        return "%s/%s" % (self.type, self.name)
+        return f"{self.type}/{self.name}"
 
     def __hash__(self):
         return hash(str(self))
@@ -213,7 +212,7 @@ class GitCheckout:
         if not self.git.config.repo_name or not self.git.is_git_checkout or self.basename == self.git.config.repo_name:
             return self.basename
 
-        return "%s (%s)" % (self.basename, self.git.config.repo_name)
+        return f"{self.basename} ({self.git.config.repo_name})"
 
     @runez.cached_property
     def origin_project(self):
@@ -301,13 +300,13 @@ class ProjectDir:
         :param str path: Path to folder
         :param MgitPreferences|None prefs: Display prefs
         """
-        self.path = path                                # Path to folder to examine
-        self.prefs = prefs or MgitPreferences()         # Preferences on how to output result
-        self.checkouts = []                             # Actual git checkouts in 'path'
-        self.projects = collections.defaultdict(set)    # Seen remotes
-        self.predominant = None                         # Predominant remote, if any
-        self.additional = None                          # Additional projects (sorted by checkouts, descending)
-        self.stash_projects = {}                        # Corresponding projects from stash, when applicable
+        self.path = path  # Path to folder to examine
+        self.prefs = prefs or MgitPreferences()  # Preferences on how to output result
+        self.checkouts = []  # Actual git checkouts in 'path'
+        self.projects = collections.defaultdict(set)  # Seen remotes
+        self.predominant = None  # Predominant remote, if any
+        self.additional = None  # Additional projects (sorted by checkouts, descending)
+        self.stash_projects = {}  # Corresponding projects from stash, when applicable
         self.scan()
 
     def __repr__(self):
@@ -375,16 +374,16 @@ class ProjectDir:
         result = "%s:" % runez.purple(runez.short(self.path))
 
         if not self.projects:
-            return "%s %s" % (result, runez.orange("no git folders"))
+            return "{} {}".format(result, runez.orange("no git folders"))
 
         if self.predominant:
-            result += runez.bold(" %s %s" % (len(self.projects[self.predominant]), self.predominant))
+            result += runez.bold(f" {len(self.projects[self.predominant])} {self.predominant}")
 
         else:
             result += runez.orange(" no predominant project")
 
         if self.additional:
-            result += " (%s)" % runez.purple(", ".join("+%s %s" % (len(self.projects[project]), project) for project in self.additional))
+            result += " (%s)" % runez.purple(", ".join(f"+{len(self.projects[project])} {project}" for project in self.additional))
 
         return result
 

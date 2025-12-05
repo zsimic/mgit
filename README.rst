@@ -127,7 +127,8 @@ You can also compile from source::
 
     git clone https://github.com/zsimic/mgit.git
     cd mgit
-    tox -e venv
+    uv venv
+    uv pip install -e .
 
     .venv/bin/mgit --help
 

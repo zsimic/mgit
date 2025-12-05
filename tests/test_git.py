@@ -18,8 +18,8 @@ def test_invalid_branch_names():
 def check_url(url, protocol, hostname, username, relative_path, repo, name):
     u = GitURL()
     u.set(url)
-    assert str(u) == (url or '')
-    assert u.url == (url or '')
+    assert str(u) == (url or "")
+    assert u.url == (url or "")
     assert u.protocol == protocol
     assert u.hostname == hostname
     assert u.username == username
@@ -35,13 +35,7 @@ def test_git_urls():
     check_url("/some/repo/foo", "file", "local", None, "/some/repo/foo", "repo", "foo")
 
     check_url(
-        "ssh://git@stash.corp.foo.com:7999/myproject/bin.git",
-        "ssh",
-        "stash.corp.foo.com",
-        "git",
-        "/myproject/bin.git",
-        "myproject",
-        "bin"
+        "ssh://git@stash.corp.foo.com:7999/myproject/bin.git", "ssh", "stash.corp.foo.com", "git", "/myproject/bin.git", "myproject", "bin"
     )
     check_url(
         "https://user@stash.corp.foo.com/scm/myproject/bin.git",
@@ -50,7 +44,7 @@ def test_git_urls():
         "user",
         "/scm/myproject/bin.git",
         "myproject",
-        "bin"
+        "bin",
     )
 
     check_url("git@github.com:foo/vmaf.git", "ssh", "github.com", "git", "foo/vmaf.git", "foo", "vmaf")

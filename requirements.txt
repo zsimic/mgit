@@ -1,3 +1,0 @@
-# pinned
-click==8.0.1
-runez==2.7.5
