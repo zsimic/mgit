@@ -9,10 +9,6 @@ Fetch collections of git projects
     :target: https://github.com/zsimic/mgit/actions
     :alt: Tested with Github Actions
 
-.. image:: https://codecov.io/gh/zsimic/mgit/branch/main/graph/badge.svg
-    :target: https://codecov.io/gh/zsimic/mgit
-    :alt: Test code codecov
-
 .. image:: https://img.shields.io/pypi/pyversions/mgit.svg
     :target: https://pypi.org/project/mgit/
     :alt: Python versions tested

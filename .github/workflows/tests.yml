@@ -23,7 +23,6 @@ jobs:
 
     - run: pip install -U pip tox
     - run: tox -e py
-    - uses: codecov/codecov-action@v5
 
   linters:
 
