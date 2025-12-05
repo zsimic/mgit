@@ -78,7 +78,7 @@ class GitRunReport:
         self.add(*args, **kwargs)
 
     def __repr__(self):
-        return "%s problems, %s progress, %s notes" % (len(self._problem), len(self._progress), len(self._note))
+        return f"{len(self._problem)} problems, {len(self._progress)} progress, {len(self._note)} notes"
 
     def __contains__(self, text):
         """
@@ -239,7 +239,7 @@ class GitURL:
             if m:
                 self.protocol = "ssh"
                 self.hostname = m.group(1) or "unknown"
-                self.relative_path = "%s/%s" % (m.group(2), m.group(3))
+                self.relative_path = f"{m.group(2)}/{m.group(3)}"
                 self.username = "git"
                 self._set_name(m.group(3))
                 self._set_repo(m.group(2))
@@ -332,7 +332,7 @@ class GitDir:
             args_represented = "git %s" % " ".join(args)
 
         else:
-            args_represented = "git -C %s %s" % (runez.short(self.path), " ".join(args))
+            args_represented = "git -C {} {}".format(runez.short(self.path), " ".join(args))
             cmd.extend(["-C", self.path])
 
         cmd.extend(args)
@@ -566,7 +566,7 @@ class GitDir:
             if not url or url.protocol != "ssh":
                 continue
 
-            result.update(["%s/%s" % (remote, branch) for branch in branches if branch not in self.special_branches])
+            result.update([f"{remote}/{branch}" for branch in branches if branch not in self.special_branches])
 
         return result
 
@@ -664,7 +664,7 @@ class GitBranches(GitAspect):
                 name = name[:-1]
 
             name, _, problem = name.partition(" ")
-            self.report.add(note="%s %s" % (name, problem))
+            self.report.add(note=f"{name} {problem}")
 
         self.local.add(name)
         if line[0] == "*":

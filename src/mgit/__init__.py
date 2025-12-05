@@ -54,12 +54,12 @@ def print_modified(items, color1, color2=None):
     for item in items:
         state = item[0:2]
         if color2:
-            state = "%s%s" % (color1(item[0]), color2(item[1]))
+            state = f"{color1(item[0])}{color2(item[1])}"
 
         elif color1:
             state = color1(state)
 
-        print("  %s %s" % (state, item[3:]))
+        print(f"  {state} {item[3:]}")
 
 
 class MgitPreferences:
@@ -91,7 +91,7 @@ class MgitPreferences:
         if value is False:
             return "!%s" % name
 
-        return "%s=%s" % (name, value)
+        return f"{name}={value}"
 
     def set_short(self, value):
         """
@@ -132,7 +132,7 @@ class RemoteProject:
         self.name = url.repo or "unknown"
 
     def __repr__(self):
-        return "%s/%s" % (self.type, self.name)
+        return f"{self.type}/{self.name}"
 
     def __hash__(self):
         return hash(str(self))
@@ -212,7 +212,7 @@ class GitCheckout:
         if not self.git.config.repo_name or not self.git.is_git_checkout or self.basename == self.git.config.repo_name:
             return self.basename
 
-        return "%s (%s)" % (self.basename, self.git.config.repo_name)
+        return f"{self.basename} ({self.git.config.repo_name})"
 
     @runez.cached_property
     def origin_project(self):
@@ -374,16 +374,16 @@ class ProjectDir:
         result = "%s:" % runez.purple(runez.short(self.path))
 
         if not self.projects:
-            return "%s %s" % (result, runez.orange("no git folders"))
+            return "{} {}".format(result, runez.orange("no git folders"))
 
         if self.predominant:
-            result += runez.bold(" %s %s" % (len(self.projects[self.predominant]), self.predominant))
+            result += runez.bold(f" {len(self.projects[self.predominant])} {self.predominant}")
 
         else:
             result += runez.orange(" no predominant project")
 
         if self.additional:
-            result += " (%s)" % runez.purple(", ".join("+%s %s" % (len(self.projects[project]), project) for project in self.additional))
+            result += " (%s)" % runez.purple(", ".join(f"+{len(self.projects[project])} {project}" for project in self.additional))
 
         return result
 
