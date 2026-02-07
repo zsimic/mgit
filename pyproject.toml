@@ -49,14 +49,12 @@ cache-dir = ".tox/.ruff_cache"
 line-length = 140
 
 [tool.ruff.lint]
-#ignore = ["RUF021", "RUF022", "RUF023", "S101"]
 extend-select = [
-#    "A",   # flake8-builtins
-#    "ARG", # flake8-unused-arguments
-#    "B",   # flake8-bugbear
+    "A",   # flake8-builtins
+    "ARG", # flake8-unused-arguments
+    "B",   # flake8-bugbear
     "C4",  # flake8-comprehensions
     "C90", # mccabe
-#    "D",   # pydocstyle
     "DTZ", # flake8-datetimez
     "E",   # pycodestyle errors
     "ERA", # eradicate
@@ -68,29 +66,28 @@ extend-select = [
     "INT", # flake8-gettext
     "PGH", # pygrep-hooks
     "PIE", # flake8-pie
-#    "PT", # flake8-pytest
+    "PT", # flake8-pytest
     "PYI", # flake8-pyi
     "Q",   # flake8-quotes
     "RSE", # flake8-raise
-#    "RET", # flake8-return
-#    "RUF", # ruff-specific
-#    "S", #flake8-bandit
-#    "SIM", # flake8-simplify
-#    "SLF", # flake8-self
+    "RUF", # ruff-specific
+    "S", #flake8-bandit
+    "SIM", # flake8-simplify
     "SLOT", # flake8-slots
     "T10", # flake8-debugger
     "TID", # flake8-tidy-imports
     "TCH", # flake8-type-checking
     "TD", # flake8-todos
-#    "TRY", # tryceratops
     "W",   # pycodestyle warnings
 ]
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # Sigh `bandit` devs...
 
 [tool.ruff.lint.isort]
 order-by-type = false
 
 [tool.ruff.lint.mccabe]
-max-complexity = 20
+max-complexity = 19
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"

@@ -247,9 +247,15 @@ class GitCheckout:
             if freshness:
                 result += " %s" % freshness
 
-        if not report.has_problems and self.parent and self.prefs and self.prefs.all and self.parent.predominant:
-            if self.origin_project != self.parent.predominant:
-                report.add(note="not part of %s" % self.parent.predominant)
+        if (
+            not report.has_problems
+            and self.parent
+            and self.prefs
+            and self.prefs.all
+            and self.parent.predominant
+            and self.origin_project != self.parent.predominant
+        ):
+            report.add(note="not part of %s" % self.parent.predominant)
 
         if report:
             rep = report.representation()

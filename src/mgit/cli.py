@@ -19,7 +19,7 @@ from mgit import get_target, GitCheckout
 from mgit.git import GitRunReport
 
 LOG = logging.getLogger(__name__)
-VALID_CLEAN_ACTIONS = "show local remote all reset".split()
+VALID_CLEAN_ACTIONS = ("show", "local", "remote", "all", "reset")
 
 
 @runez.click.command()

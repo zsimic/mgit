@@ -2,19 +2,14 @@ import collections
 import logging
 import os
 import re
-import subprocess  # nosec
+import subprocess
 import time
-
-try:
-    from urlparse import urlparse
-
-except ImportError:
-    from urllib.parse import urlparse
+from urllib.parse import urlparse
 
 import runez
 
 LOG = logging.getLogger(__name__)
-FETCH_AGE_FILES = ["FETCH_HEAD", "HEAD"]
+FETCH_AGE_FILES = ("FETCH_HEAD", "HEAD")
 FRESHNESS_THRESHOLD = 12 * runez.date.SECONDS_IN_ONE_HOUR
 BRANCH_INVALID_CHARS = "~^: \t\\"
 GIT_ERROR_PREFIXES = {"git", "error", "fatal"}
@@ -31,11 +26,7 @@ def is_valid_branch_name(name):
     if not name or name[0] == "." or ".." in name or name.endswith(("/", ".lock")):
         return False
 
-    for char in name:
-        if ord(char) < 32 or char in BRANCH_INVALID_CHARS:
-            return False
-
-    return True
+    return not any(ord(char) < 32 or char in BRANCH_INVALID_CHARS for char in name)
 
 
 def shortened_message(text, keep_lines=2, separator=" "):
@@ -85,14 +76,7 @@ class GitRunReport:
         :param str text: Text to look up
         :return bool: True if 'text' is mentioned in one of the messages in self._problem
         """
-        if not text:
-            return False
-
-        for problem in self._problem:
-            if text in problem:
-                return True
-
-        return False
+        return bool(text) and any(text in problem for problem in self._problem)
 
     @classmethod
     def not_git(cls):
@@ -346,7 +330,7 @@ class GitDir:
         cmd, pretty_args = self._git_command(args)
         pretty_args = "git %s" % " ".join(args)
         print("Running: %s" % runez.bold(pretty_args))
-        proc = subprocess.Popen(cmd)  # nosec
+        proc = subprocess.Popen(cmd)  # noqa: S603
         proc.communicate()
         if proc.returncode:
             return GitRunReport(problem="git exited with code %s" % proc.returncode)
@@ -360,7 +344,7 @@ class GitDir:
         """
         cmd, pretty_args = self._git_command(args)
         LOG.debug("Running: %s", pretty_args)
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # nosec
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # noqa: S603
         output, error = proc.communicate()
         output = runez.decode(output)
         error = runez.decode(error)
@@ -467,7 +451,7 @@ class GitDir:
         if self.folder_exists:
             return GitRunReport(problem="folder already exists, can't clone")
 
-        output, error = self.run_git_command("clone", url, self.path)
+        _, error = self.run_git_command("clone", url, self.path)
         self.folder_exists = os.path.exists(self.path)
         self.is_git_checkout = self.folder_exists and os.path.isdir(os.path.join(self.path, ".git"))
         self.reset_cached_properties()
@@ -593,12 +577,7 @@ class GitAspect:
             if v is None or isinstance(v, (property, runez.cached_property)) or callable(v):
                 continue
 
-            if isinstance(v, collections.defaultdict):
-                v = collections.defaultdict(v.default_factory)
-
-            else:
-                v = v.__class__()
-
+            v = collections.defaultdict(v.default_factory) if isinstance(v, collections.defaultdict) else v.__class__()
             setattr(self, k, v)
 
         if not self._parent.is_git_checkout:
@@ -613,7 +592,7 @@ class GitAspect:
             self._process_line(line)
 
     def _process_line(self, line):
-        raise Exception("Not implemented")
+        """Process `line`"""
 
 
 class GitBranches(GitAspect):
@@ -622,11 +601,13 @@ class GitBranches(GitAspect):
     _command = "branch --list --all"
     _remote_prefix = "remotes/"
 
-    current = ""  # Current local branch
-    local = set()  # Local branches
-    by_remote = collections.defaultdict(set)  # Branches by remote (usually origin and optionally upstream)
-    default_branches = {}  # Default branch per remote
-    report = GitRunReport()
+    def __init__(self, parent, auto_load=True):
+        self.current = ""  # Current local branch
+        self.local = set()  # Local branches
+        self.by_remote = collections.defaultdict(set)  # Branches by remote (usually origin and optionally upstream)
+        self.default_branches = {}  # Default branch per remote
+        self.report = GitRunReport()
+        super().__init__(parent, auto_load=auto_load)
 
     @property
     def shortened_current_branch(self):
@@ -674,10 +655,13 @@ class GitConfig(GitAspect):
     """Remote info"""
 
     _command = "config --list"
-    origin = GitURL()  # URL to remote called 'origin'
-    remotes = {}  # GitURL by remote name map
-    tracking_remote = {}  # Remotes that each local branch is tracking
-    content = {}
+
+    def __init__(self, parent, auto_load=True):
+        self.origin = GitURL()  # URL to remote called 'origin'
+        self.remotes = {}  # GitURL by remote name map
+        self.tracking_remote = {}  # Remotes that each local branch is tracking
+        self.content = {}
+        super().__init__(parent, auto_load=auto_load)
 
     @runez.cached_property
     def repo_name(self):
@@ -704,9 +688,8 @@ class GitConfig(GitAspect):
                 if k == "origin":
                     self.origin = url
 
-        elif k.startswith("branch."):
-            if k.endswith(".remote"):
-                self.tracking_remote[k[7:-7]] = v
+        elif k.startswith("branch.") and k.endswith(".remote"):
+            self.tracking_remote[k[7:-7]] = v
 
 
 class GitStatus(GitAspect):
@@ -714,9 +697,11 @@ class GitStatus(GitAspect):
 
     _command = "status --porcelain --branch"
 
-    modified = []
-    untracked = []
-    report = GitRunReport()
+    def __init__(self, parent, auto_load=True):
+        self.modified = []
+        self.untracked = []
+        self.report = GitRunReport()
+        super().__init__(parent, auto_load=auto_load)
 
     @property
     def freshness(self):
@@ -787,7 +772,7 @@ def _report_sorter(enum):
     :param tuple(int, str) enum: Tuple from enumerate()
     :return int: Value to use for sorting messages in this report
     """
-    index, message = enum
+    _, message = enum
     if message[0] == "<":
         return -enum[0]  # '<' makes message sort towards front, but keeping order with other such prefixed messages
 

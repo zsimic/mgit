@@ -20,7 +20,7 @@ def test_edge_cases():
     prefs = mgit.MgitPreferences()
     assert not str(prefs)
 
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="Internal error: add support for flag 'foo'"):
         prefs.update(foo=1)
 
 

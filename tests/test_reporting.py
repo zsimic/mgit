@@ -3,11 +3,12 @@ import pytest
 from mgit.git import GitRunReport
 
 
-def check_sorting(input, expected, max_chars=160):
-    if not isinstance(input, GitRunReport):
-        input = GitRunReport(problem=input.split())
-    assert isinstance(input, GitRunReport)
-    s = input.representation(max_chars=max_chars)
+def check_sorting(given: str, expected, max_chars=160):
+    if not isinstance(given, GitRunReport):
+        given = GitRunReport(problem=given.split())
+
+    assert isinstance(given, GitRunReport)
+    s = given.representation(max_chars=max_chars)
     assert s == expected
 
 
@@ -35,7 +36,7 @@ def test_reporting():
     check_sorting(GitRunReport().cant_pull().add(""), "can't pull")
 
     # Adding bogus things is detected
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="Internal error: invalid GitRunReport"):
         GitRunReport().cant_pull().add(a=1)
 
     # Cumulating
@@ -51,7 +52,7 @@ def test_reporting():
     check_sorting(GitRunReport().add(problem="p1", note="n1").add(problem="p2"), "p1; p2; n1")
 
     # Progress comes ahead of notes, but after problems
-    check_sorting(GitRunReport().add(note="n1 <n2".split(), progress="p1 p2 <p3".split(), problem="prob1"), "prob1; p3; p1; p2; n2; n1")
+    check_sorting(GitRunReport().add(note=("n1", "<n2"), progress=("p1", "p2", "<p3"), problem="prob1"), "prob1; p3; p1; p2; n2; n1")
 
 
 def test_truncating():
