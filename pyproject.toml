@@ -32,8 +32,8 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "click~=8.3",
-    "runez~=5.3",
+    "click<9",
+    "runez<6",
 ]
 dynamic = ["version"]
 
@@ -43,6 +43,9 @@ mgit = "mgit.cli:main"
 [project.urls]
 Source = "https://github.com/zsimic/mgit"
 
+[tool.pyright]
+pythonVersion = "3.10"
+include = ["src"]
 
 [tool.ruff]
 cache-dir = ".tox/.ruff_cache"
