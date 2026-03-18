@@ -1,5 +1,5 @@
-from runez.conftest import cli
+from runez.conftest import cli, ClickRunner  # noqa: F401, fixtures
 
 from mgit.cli import main
 
-cli.default_main = main
+ClickRunner.default_main = main

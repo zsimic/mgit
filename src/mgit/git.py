@@ -344,10 +344,8 @@ class GitDir:
         """
         cmd, pretty_args = self._git_command(args)
         LOG.debug("Running: %s", pretty_args)
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # noqa: S603
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
         output, error = proc.communicate()
-        output = runez.decode(output)
-        error = runez.decode(error)
         if proc.returncode == 0:
             return output, GitRunReport()
 
