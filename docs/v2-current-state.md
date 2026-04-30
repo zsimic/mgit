@@ -32,8 +32,8 @@ Default behavior is status. Options layer additional behavior:
 - `--debug`, `--color/--no-color`, `--log`, `--version`: inherited from
   `runez.click`.
 
-For v2, `--debug` and `--short` are not planned first-iteration options.
-Use `-v/--verbose` for extra detail and one compact default output style.
+For v2, `--short` and `--long` are not planned first-iteration options.
+`-v/--verbose` is reserved for logging verbosity, not output shape.
 
 ## Current Runtime Model
 

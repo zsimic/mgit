@@ -126,6 +126,36 @@ def test_workspace_status_alignment(cli):
     assert cli.succeeded
     assert cli.logged.stdout.contents() == expected
 
+    cli.run("-v my-workspace")
+    assert cli.succeeded
+    assert cli.logged.stdout.contents() == expected
+
+
+def test_single_status_shows_pending_paths(cli):
+    make_repo(Path("repo"))
+    (Path("repo/README.md")).write_text("changed\n")
+    (Path("repo/new.txt")).write_text("new\n")
+
+    cli.run("repo")
+
+    assert cli.succeeded
+    assert "README.md" in cli.logged
+    assert "new.txt" in cli.logged
+
+
+def test_verbose_enables_debug_logging(cli):
+    make_repo(Path("repo"))
+
+    cli.run("repo")
+    assert cli.succeeded
+    assert "DEBUG Running:" not in cli.logged
+
+    cli.run("-v repo")
+    assert cli.succeeded
+    assert "DEBUG Running: git -C repo config --list" in cli.logged
+    assert "DEBUG Running: git -C repo branch --list --all" in cli.logged
+    assert "DEBUG Running: git -C repo status --porcelain --branch" in cli.logged
+
 
 def test_branches_single_repo(cli):
     make_repo(Path("repo"))

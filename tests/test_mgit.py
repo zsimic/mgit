@@ -10,8 +10,8 @@ def test_edge_cases():
     assert mgit.git_parent_path("/") is None
     assert mgit.git_parent_path(runez.DEV.tests_folder) == runez.DEV.project_folder
 
-    prefs = mgit.MgitPreferences(all=True, fetch=False, pull=False, short=None)
-    assert str(prefs) == "align all !fetch !pull !verbose"
+    prefs = mgit.MgitPreferences(all=True, fetch=False, pull=False)
+    assert str(prefs) == "all !fetch !pull"
 
     prefs = mgit.MgitPreferences(name_size=5)
     prefs.fetch = None

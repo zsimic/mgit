@@ -70,8 +70,6 @@ class MgitPreferences:
 
     def __init__(self, **kwargs):
         self.name_size: int | None = None  # How many chars to align names when displaying list of checkouts
-        self.align = True  # Whether to align names or not
-        self.verbose = False  # Show verbose output
         self.all = False  # Show all entries, including missing/invalid checkout folders
         self.fetch = False  # Auto-fetch before showing status
         self.fetch_age: int | None = 30  # Auto-fetch only when older than this many seconds, None means always
@@ -96,17 +94,6 @@ class MgitPreferences:
             return f"!{name}"
 
         return f"{name}={value}"
-
-    def set_short(self, value):
-        """
-        :param bool|None value: Value from parsed click command line:
-                                None (default): align, verbose for individual git checkouts, short one line otherwise
-                                True (--short): everything compact
-                                False (--verbose): everything verbose
-        """
-        self.align = value is None
-        self.verbose = value is False
-        self._represented_names.update(("align", "verbose"))
 
     def update(self, **kwargs):
         for name, value in kwargs.items():
@@ -296,7 +283,7 @@ class GitCheckout:
         """Show checkout status"""
         report = self.apply()
         print(self.header(report))
-        if self.prefs.verbose or (not self.parent and self.prefs.align):
+        if not self.parent:
             if len(self.git.orphan_branches) > 1:
                 orphan_branches = ", ".join(self.git.orphan_branches)
                 print(f"  Orphan branches: {orphan_branches}")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 
@@ -35,7 +36,7 @@ def build_parser():
         epilog=command_help(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Show extra detail.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging.")
     parser.add_argument("--color", choices=("auto", "always", "never"), default="auto", help="Control ANSI color output.")
     parser.add_argument("--version", action="version", version=f"mgit {package_version()}")
     parser.add_argument("args", nargs="*", metavar="COMMAND_OR_TARGET")
@@ -65,10 +66,10 @@ def parse_cli_args(argv=None, parser=None):
     )
 
 
-def configure_runtime():
+def configure_runtime(verbose=False):
     runez.system.AbortException = SystemExit
     runez.date.DEFAULT_DURATION_SPAN = -2
-    runez.log.setup(debug=False, console_format="%(levelname)s %(message)s", locations=None)
+    runez.log.setup(debug=verbose, level=logging.INFO, console_format="%(levelname)s %(message)s", locations=None)
 
 
 def target_preferences(invocation):
@@ -76,7 +77,6 @@ def target_preferences(invocation):
         "fetch": invocation.command.name == "fetch",
         "fetch_age": None if invocation.command.name == "fetch" else 30,
         "pull": invocation.command.name == "pull",
-        "short": not invocation.verbose,
     }
 
 
@@ -181,13 +181,12 @@ def has_pending_changes(target):
 
 def print_checkout_status(target, report=None):
     print(target.header(report))
-    if target.prefs.verbose:
-        if len(target.git.orphan_branches) > 1:
-            orphan_branches = ", ".join(target.git.orphan_branches)
-            print(f"  Orphan branches: {orphan_branches}")
+    if len(target.git.orphan_branches) > 1:
+        orphan_branches = ", ".join(target.git.orphan_branches)
+        print(f"  Orphan branches: {orphan_branches}")
 
-        print_modified(target.git.status.modified, index_change, worktree_change)
-        print_modified(target.git.status.untracked, untracked_change)
+    print_modified(target.git.status.modified, index_change, worktree_change)
+    print_modified(target.git.status.untracked, untracked_change)
 
 
 def branch_annotations(target, name):
@@ -305,7 +304,7 @@ COMMAND_HANDLERS = {
 
 
 def run_invocation(invocation):
-    configure_runtime()
+    configure_runtime(invocation.verbose)
     target = invocation_target(invocation)
 
     handler = COMMAND_HANDLERS[invocation.command.handler]

@@ -49,9 +49,9 @@ Suggested module split:
 - [x] Implement single-repo `groom` and `g` as the priority cleanup workflow.
 - [x] Implement `main` and `m`.
 - [x] Implement `branches` and `b`.
-- [x] Support `-v/--verbose`.
-- [ ] Keep one compact default output style; defer `--short` unless it becomes
-  clearly useful.
+- [x] Keep output shape independent of `-v/--verbose`.
+- [x] Defer `--short`/`--long` unless they become clearly useful.
+- [x] Wire `-v/--verbose` to logging verbosity.
 - [x] Add CLI tests for default command, aliases, explicit commands, invalid
   usage, and target paths.
 
@@ -99,9 +99,10 @@ The first coding slice should serve the two common commands first:
 4. Add the single-repo `g` workflow: fetch/prune, resolve default branch,
    refuse on pending changes, checkout default branch when needed, pull safely,
    and delete stale local branches.
-5. Add `mgit main`/`m` and `-v/--verbose` around that core.
-6. Defer `--debug` and `--short`.
-7. Do not carry legacy v1 action flags into v2; use commands such as `mgit f`
+5. Add `mgit main`/`m` around that core.
+6. Keep `-v/--verbose` out of output-shape decisions.
+7. Defer `--short`/`--long`.
+8. Do not carry legacy v1 action flags into v2; use commands such as `mgit f`
    and `mgit p` instead.
 
 This makes the most common loops work first: `mgit`, then `mgit f`/`mgit p`

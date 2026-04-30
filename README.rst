@@ -89,10 +89,10 @@ In one glance you get:
 - fetch freshness
 - stale local branch notes
 
-Use verbose mode when you want paths, not just counts::
+When the target is a single checkout, status also shows the pending paths.
+Workspace output stays compact so many repos remain scannable::
 
-    mgit -v
-    mgit -v ~/github/mgit
+    mgit ~/github/mgit
 
 Color is automatic on terminals and can be controlled explicitly::
 

@@ -10,7 +10,8 @@ plan, not a promise. Update it as decisions settle.
 - Use subcommands instead of behavior-heavy flags.
 - Support short aliases for common commands where the alias is unambiguous.
 - Let each command declare whether it supports one repo, many repos, or both.
-- Keep one compact default output style, with `-v/--verbose` for extra detail.
+- Keep output shape simple and consistent: single-checkout status can show
+  changed paths, while workspace status stays compact.
 - Prefer stdlib implementation unless a dependency removes enough complexity to
   justify itself.
 - Use argparse for v2 unless a concrete issue proves Click is still worth the
@@ -25,7 +26,7 @@ mgit [GLOBAL_OPTIONS] [COMMAND] [ARGS...]
 Global options:
 
 - `--color auto|always|never`
-- `-v, --verbose`
+- `-v, --verbose` for logging verbosity, not output shape
 - `--version`
 - `--help`
 
@@ -34,8 +35,8 @@ The v1 action flags are intentionally not part of v2. For example, use
 
 Not planned for the first iteration:
 
-- `--debug`
 - `--short`
+- `--long`
 
 Default command:
 
@@ -116,7 +117,8 @@ Alias policy:
 - Read-only.
 - Shows branch, freshness, pending diffs, untracked count, ahead/behind/gone
   state, and stale fetch notes.
-- Verbose mode shows modified/untracked paths.
+- For a single checkout, shows modified/untracked paths.
+- For a workspace, keeps each checkout to one compact status line.
 
 `fetch`:
 

@@ -91,7 +91,8 @@ The v2 plan is not final. Current preferred direction:
 - `clone` expects a full HTTPS URL in the first implementation. Do not infer
   GitHub from `owner/repo` shorthand yet.
 - First-iteration global options are intentionally small: `-v/--verbose`,
-  `--color`, `--version`, and `--help`.
+  `--color`, `--version`, and `--help`. `-v/--verbose` is for logging
+  verbosity; it must not control short or long status output.
 - Prefer stdlib color/output first. Reconsider `rich` only if it clearly
   simplifies tables, wrapping, or cross-platform color enough to justify the
   dependency.
