@@ -1,81 +1,150 @@
-"""
-\b
-Advanced usage:
-  --clean show                  Show which local/remote branches can be cleaned
-  --clean local                 Clean local branches that were deleted from their corresponding remote
-  --clean remote                Clean merged remote branches
-  --clean all                   Clean local and merged remote branches
-  --clean reset                 Do a git --reset --hard + clean -fdx (nuke all changes, get back to pristine state)
-\b
-"""
+import argparse
+import contextlib
+from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 
-import logging
-import sys
-
-import click
 import runez
 
-from mgit import get_target, GitCheckout
+from mgit import get_target, GitCheckout, print_modified
+from mgit.commands import command_for, command_help, CommandSpec
 from mgit.git import GitRunReport
 
-LOG = logging.getLogger(__name__)
 VALID_CLEAN_ACTIONS = ("show", "local", "remote", "all", "reset")
 
 
-@runez.click.command()
-@runez.click.version()
-@runez.click.debug()
-@runez.click.color()
-@runez.click.log()
-@click.option("--clean", default=None, type=click.Choice(VALID_CLEAN_ACTIONS), help="Auto-clean branches")
-@click.option("-f", "--fetch", is_flag=True, default=False, help="Fetch from all remotes")
-@click.option("-p", "--pull", is_flag=True, default=False, help="Pull from tracking remote")
-@click.option("-s/-v", "--short/--verbose", is_flag=True, default=None, help="Short/verbose output")
-@click.option("-cs", is_flag=True, default=False, help="Handy shortcut for '--clean show'")
-@click.option("-cl", is_flag=True, default=False, help="Handy shortcut for '--clean local'")
-@click.option("-cr", is_flag=True, default=False, help="Handy shortcut for '--clean remote'")
-@click.option("-ca", is_flag=True, default=False, help="Handy shortcut for '--clean all'")
-@click.argument("target", required=False, default=None)
-def main(debug, log, clean, target, **kwargs):
-    """
-    Fetch collections of git projects
-    """
+@dataclass(frozen=True)
+class CliInvocation:
+    command: CommandSpec
+    target: str | None
+    verbose: bool = False
+    color: str = "auto"
+    legacy_clean: str | None = None
+    legacy_short: bool = False
+
+
+def package_version():
+    try:
+        return version("mgit")
+
+    except PackageNotFoundError:
+        return "0+unknown"
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="mgit",
+        description="Inspect and update git checkouts.",
+        epilog=command_help(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show extra detail.")
+    parser.add_argument("--color", choices=("auto", "always", "never"), default="auto", help="Control ANSI color output.")
+    parser.add_argument("--version", action="version", version=f"mgit {package_version()}")
+
+    # Compatibility paths for the v1 flag-oriented CLI. New commands are the v2 design center.
+    parser.add_argument("--clean", choices=VALID_CLEAN_ACTIONS, help=argparse.SUPPRESS)
+    parser.add_argument("-f", "--fetch", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-p", "--pull", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-s", "--short", dest="legacy_short", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-cs", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-cl", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-cr", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-ca", action="store_true", help=argparse.SUPPRESS)
+
+    parser.add_argument("args", nargs="*", metavar="COMMAND_OR_TARGET")
+    return parser
+
+
+def parse_cli_args(argv=None, parser=None):
+    parser = parser or build_parser()
+    namespace = parser.parse_args(argv)
+    command = command_for("status")
+    target_args = namespace.args
+    explicit_command = False
+
+    if namespace.args:
+        command_match = command_for(namespace.args[0])
+        if command_match:
+            command = command_match
+            target_args = namespace.args[1:]
+            explicit_command = True
+
+    if len(target_args) > 1:
+        parser.error(f"{command.name} accepts at most one target")
+
+    legacy_clean = handy_clean(namespace)
+    if namespace.clean and legacy_clean and namespace.clean != legacy_clean:
+        parser.error("choose only one clean action")
+
+    legacy_clean = namespace.clean or legacy_clean
+    legacy_actions = sum(bool(value) for value in (legacy_clean, namespace.fetch, namespace.pull))
+    if legacy_actions > 1:
+        parser.error("choose only one legacy action flag")
+
+    if legacy_actions and explicit_command:
+        parser.error("legacy action flags cannot be combined with v2 commands")
+
+    if namespace.fetch:
+        command = command_for("fetch")
+
+    elif namespace.pull:
+        command = command_for("pull")
+
+    return CliInvocation(
+        command=command,
+        target=target_args[0] if target_args else None,
+        verbose=namespace.verbose,
+        color=namespace.color,
+        legacy_clean=legacy_clean,
+        legacy_short=namespace.legacy_short,
+    )
+
+
+def configure_runtime():
     runez.system.AbortException = SystemExit
     runez.date.DEFAULT_DURATION_SPAN = -2
-    runez.log.setup(debug=debug, console_format="%(levelname)s %(message)s", file_location=log, locations=None)
-
-    hc = handy_clean(kwargs)
-    if not clean:
-        clean = hc
-
-    target = get_target(target, **kwargs)
-
-    if clean is not None:
-        handle_clean(target, clean)
-        sys.exit(0)
-
-    target.print_status()
+    runez.log.setup(debug=False, console_format="%(levelname)s %(message)s", locations=None)
 
 
-def handy_clean(kwargs):
+def color_context(policy):
+    if policy == "never":
+        return runez.ActivateColors(False)
+
+    if policy == "always":
+        return runez.ActivateColors(True)
+
+    return contextlib.nullcontext()
+
+
+def target_preferences(invocation):
+    short = invocation.legacy_short or not invocation.verbose
+    return {
+        "fetch": invocation.command.name == "fetch",
+        "fetch_age": None if invocation.command.name == "fetch" else 30,
+        "pull": invocation.command.name == "pull",
+        "short": short,
+    }
+
+
+def invocation_target(invocation):
+    return get_target(invocation.target, **target_preferences(invocation))
+
+
+def handy_clean(namespace):
     """
-    :param kwargs: Pop all handy shortcuts from kwargs
+    :param argparse.Namespace namespace: Parsed command line
     :return str|None: Equivalent full --clean option
     """
-    cs = kwargs.pop("cs")
-    cl = kwargs.pop("cl")
-    cr = kwargs.pop("cr")
-    ca = kwargs.pop("ca")
-    if cs:
+    if namespace.cs:
         return "show"
 
-    if cl:
+    if namespace.cl:
         return "local"
 
-    if cr:
+    if namespace.cr:
         return "remote"
 
-    if ca:
+    if namespace.ca:
         return "all"
 
     return None
@@ -92,6 +161,194 @@ def run_git(target, fatal, *args):
         return 0
 
     return 1
+
+
+def default_branch(git):
+    """
+    :param mgit.git.GitDir git: Checkout model
+    :return str|None: Default branch name
+    """
+    branch = git.branches.default_branches.get("origin")
+    if branch:
+        return branch
+
+    origin_branches = git.branches.by_remote.get("origin", set())
+    for candidate in ("main", "master"):
+        if candidate in git.branches.local or candidate in origin_branches:
+            return candidate
+
+    return None
+
+
+def checkout_default_branch(target):
+    """
+    :param GitCheckout target: Checkout to move to its default branch
+    :return GitRunReport: Checkout report
+    """
+    branch = default_branch(target.git)
+    if not branch:
+        return GitRunReport(problem="can't determine default branch")
+
+    if target.git.branches.current == branch:
+        return GitRunReport()
+
+    _, error = target.git.run_git_command("checkout", branch)
+    target.git.reset_cached_properties()
+    if error.has_problems:
+        return GitRunReport(error).add(problem="<can't checkout default branch")
+
+    return GitRunReport(progress=f"checked out {branch}")
+
+
+def stale_tracked_local_branches(git):
+    """
+    :param mgit.git.GitDir git: Checkout model
+    :return list[str]: Local branches whose tracked remote branch is gone
+    """
+    result = []
+    for branch in sorted(git.branches.local):
+        if branch in git.special_branches:
+            continue
+
+        remote = git.config.tracking_remote.get(branch)
+        if remote and branch not in git.branches.by_remote.get(remote, set()):
+            result.append(branch)
+
+    return result
+
+
+def delete_stale_local_branches(target):
+    """
+    :param GitCheckout target: Checkout to clean
+    :return GitRunReport: Cleanup report
+    """
+    report = GitRunReport()
+    branches = stale_tracked_local_branches(target.git)
+    if not branches:
+        return report.add(note="no stale local branches")
+
+    for branch in branches:
+        if branch == target.git.branches.current:
+            report.add(problem=f"can't delete current branch '{branch}'")
+            continue
+
+        _, error = target.git.run_git_command("branch", "--delete", branch)
+        if error.has_problems:
+            report.add(problem=f"couldn't delete '{branch}': {error.representation()}")
+
+        else:
+            report.add(progress=f"deleted {branch}")
+
+    target.git.reset_cached_properties()
+    return report
+
+
+def pending_changes_report(target):
+    report = GitRunReport(problem="<can't groom").add(problem="pending changes")
+    if target.git.status.modified:
+        report.add(note=runez.plural(target.git.status.modified, "diff"))
+
+    if target.git.status.untracked:
+        report.add(note=f"{len(target.git.status.untracked)} untracked")
+
+    return report
+
+
+def has_pending_changes(target):
+    return bool(target.git.status.modified or target.git.status.untracked)
+
+
+def print_checkout_status(target, report=None):
+    print(target.header(report))
+    if target.prefs.verbose:
+        if len(target.git.orphan_branches) > 1:
+            print("  Orphan branches: %s" % (", ".join(target.git.orphan_branches)))
+
+        print_modified(target.git.status.modified, runez.teal, runez.red)
+        print_modified(target.git.status.untracked, runez.orange)
+
+
+def ensure_single_checkout(target, command):
+    if not isinstance(target, GitCheckout):
+        runez.abort(f"{command} only supports one git checkout", code=2)
+
+    return target
+
+
+def handle_status(target, _invocation):
+    target.print_status()
+    return 0
+
+
+def handle_main(target, invocation):
+    target = ensure_single_checkout(target, invocation.command.name)
+    report = checkout_default_branch(target)
+    print_checkout_status(target, report)
+    return 1 if report.has_problems else 0
+
+
+def handle_groom(target, invocation):
+    target = ensure_single_checkout(target, invocation.command.name)
+    report = GitRunReport()
+
+    fetch_report = target.git.fetch(age=None)
+    if fetch_report.has_problems:
+        report.add(fetch_report).add(problem="<can't groom")
+        print_checkout_status(target, report)
+        return 1
+
+    if has_pending_changes(target):
+        print_checkout_status(target, pending_changes_report(target))
+        return 1
+
+    checkout_report = checkout_default_branch(target)
+    if checkout_report.has_problems:
+        report.add(checkout_report).add(problem="<can't groom")
+        print_checkout_status(target, report)
+        return 1
+
+    report.add(checkout_report)
+    if has_pending_changes(target):
+        print_checkout_status(target, pending_changes_report(target))
+        return 1
+
+    pull_report = target.git.pull()
+    if pull_report.has_problems:
+        report.add(pull_report).add(problem="<can't groom")
+        print_checkout_status(target, report)
+        return 1
+
+    report.add(pull_report)
+    report.add(delete_stale_local_branches(target))
+    print_checkout_status(target, report)
+    return 1 if report.has_problems else 0
+
+
+COMMAND_HANDLERS = {
+    "status": handle_status,
+    "fetch": handle_status,
+    "pull": handle_status,
+    "main": handle_main,
+    "groom": handle_groom,
+}
+
+
+def run_invocation(invocation):
+    configure_runtime()
+    target = invocation_target(invocation)
+
+    if invocation.legacy_clean:
+        handle_clean(target, invocation.legacy_clean)
+        return 0
+
+    handler = COMMAND_HANDLERS[invocation.command.handler]
+    return handler(target, invocation)
+
+
+def main(argv=None):
+    invocation = parse_cli_args(argv)
+    with color_context(invocation.color):
+        return run_invocation(invocation)
 
 
 def clean_reset(target):

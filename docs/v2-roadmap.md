@@ -25,8 +25,8 @@ accurate as work proceeds.
 
 ## Phase 1: Architecture Skeleton
 
-- [ ] Introduce a command registry with command metadata.
-- [ ] Introduce argparse parsing while keeping current behavior reachable during
+- [x] Introduce a command registry with command metadata.
+- [x] Introduce argparse parsing while keeping current behavior reachable during
   transition.
 - [ ] Move target discovery into a dedicated module.
 - [ ] Enforce depth-1 workspace scanning.
@@ -44,17 +44,17 @@ Suggested module split:
 
 ## Phase 2: Core Commands
 
-- [ ] Implement `status` and `s`.
-- [ ] Implement `fetch` and `f`.
-- [ ] Implement `pull` and `p`.
-- [ ] Implement single-repo `groom` and `g` as the priority cleanup workflow.
-- [ ] Implement `main` and `m`.
+- [x] Implement `status` and `s`.
+- [x] Implement `fetch` and `f`.
+- [x] Implement `pull` and `p`.
+- [x] Implement single-repo `groom` and `g` as the priority cleanup workflow.
+- [x] Implement `main` and `m`.
 - [ ] Implement `branches` and `b`.
-- [ ] Support `-v/--verbose`.
+- [x] Support `-v/--verbose`.
 - [ ] Keep one compact default output style; defer `--short` unless it becomes
   clearly useful.
-- [ ] Add CLI tests for default command, aliases, explicit commands, invalid
-  commands, and target paths.
+- [x] Add CLI tests for default command, aliases, explicit commands, invalid
+  usage, and target paths.
 
 ## Phase 3: Clone Command
 

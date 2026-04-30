@@ -60,6 +60,8 @@ Target handling:
   the target is that checkout.
 - If no target is supplied and the current directory is not inside a checkout,
   the target is the current directory as a workspace.
+- During the transition, a single unknown token is treated as a `status` target
+  so `mgit path` keeps working. Extra positional tokens are invalid usage.
 - A workspace scan is depth 1 only: inspect direct children matching
   `<workspace>/*/.git`. Nested descendants are out of scope for now.
 
@@ -154,6 +156,7 @@ Alias policy:
 - Pulls the default branch safely, using the same guardrails as `pull`.
 - Deletes local branches whose tracked remote is gone, while never deleting
   default branches, `HEAD`, `main`, or `master`.
+- Leaves non-tracking local branches alone in the first implementation.
 - Reports what it did and what it skipped.
 - First iteration should prioritize the single-repo flow. Workspace grooming can
   come after single-repo behavior is solid.

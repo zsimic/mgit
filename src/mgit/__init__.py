@@ -70,6 +70,7 @@ class MgitPreferences:
     verbose = False  # Show verbose output
     all = False  # Show all entries, including missing/invalid checkout folders
     fetch = False  # Auto-fetch before showing status
+    fetch_age = 30  # Auto-fetch only when older than this many seconds, None means always
     pull = False  # Auto-pull before showing status
     inspect_remotes = False  # Inspect remote branches to report cleanable (slower)
 
@@ -279,7 +280,7 @@ class GitCheckout:
                 report.add(self.git.pull())
 
         elif self.prefs.fetch:
-            report.add(self.git.fetch())
+            report.add(self.git.fetch(age=self.prefs.fetch_age))
 
         if not report.has_problems:
             report.add(self.git.report(inspect_remotes=self.prefs.inspect_remotes))

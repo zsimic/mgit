@@ -43,6 +43,14 @@ mgit = "mgit.cli:main"
 [project.urls]
 Source = "https://github.com/zsimic/mgit"
 
+[dependency-groups]
+test = [
+    "pytest-cov",
+]
+dev = [
+    { include-group = "test" },
+]
+
 [tool.pyright]
 pythonVersion = "3.10"
 include = ["src"]
