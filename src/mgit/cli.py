@@ -183,7 +183,8 @@ def print_checkout_status(target, report=None):
     print(target.header(report))
     if target.prefs.verbose:
         if len(target.git.orphan_branches) > 1:
-            print("  Orphan branches: %s" % (", ".join(target.git.orphan_branches)))
+            orphan_branches = ", ".join(target.git.orphan_branches)
+            print(f"  Orphan branches: {orphan_branches}")
 
         print_modified(target.git.status.modified, index_change, worktree_change)
         print_modified(target.git.status.untracked, untracked_change)
@@ -212,7 +213,7 @@ def branch_lines(target):
         line = f"{marker} {name:<{width}}"
         annotations = branch_annotations(target, name)
         if annotations:
-            line += "  %s" % " ".join(annotations)
+            line += f"  {' '.join(annotations)}"
 
         lines.append(line)
 

@@ -3,7 +3,7 @@ import pytest
 from mgit.git import GitRunReport
 
 
-def check_sorting(given: str, expected, max_chars=160):
+def check_sorting(given: GitRunReport | str, expected, max_chars=120):
     if not isinstance(given, GitRunReport):
         given = GitRunReport(problem=given.split())
 
@@ -61,7 +61,7 @@ def test_truncating():
     progress = ["some progress", "and some more"]
     notes = ["one note", "two notes", "and some really looooong note that just has to be truncated", "yup"]
 
-    expected = "some problem; some other problem; and yet another; some progress; and some more; one note; two notes; and some really looooong note that just has to be trunc..."  # noqa: E501
+    expected = "some problem; some other problem; and yet another; some progress; and some more; one note; two notes; and some really..."
 
     r = GitRunReport(problem=problems, progress=progress, note=notes)
     check_sorting(r, expected)
@@ -72,7 +72,7 @@ def test_truncating():
     problems.append("and some really really really loooong problem report that just has to be truncated")
     progress = ["progress won't show", "since problem too long"]
 
-    expected = "some problem; plus some other problem; and yet another; even more problems; and some really really really loooong problem report that just has to be truncate..."  # noqa: E501
+    expected = "some problem; plus some other problem; and yet another; even more problems; and some really really really loooong pro..."
     r = GitRunReport(problem=problems, progress=progress, note="note won't show either")
     check_sorting(r, expected)
 

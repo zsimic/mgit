@@ -116,7 +116,7 @@ class GitRunReport:
 
         result = separator.join(result)
         if len(result) > max_chars:
-            result = "%s..." % (result[: max_chars - 3])
+            result = f"{result[: max_chars - 3]}..."
 
         return result
 
@@ -157,10 +157,10 @@ class GitRunReport:
             self.cumulate(item)
 
         for key, value in kwargs.items():
-            attribute_name = "_%s" % key
+            attribute_name = f"_{key}"
             target = getattr(self, attribute_name, None)
             if target is None:
-                raise Exception("Internal error: invalid GitRunReport target '%s'" % key)
+                raise Exception(f"Internal error: invalid GitRunReport target '{key}'")
 
             if isinstance(value, (list, tuple)):
                 for item in value:
@@ -232,7 +232,7 @@ class GitURL:
                 self._set_name(m.group(3))
                 self._set_repo(m.group(2))
                 return
-            url = "ssh://%s" % url
+            url = f"ssh://{url}"
 
         p = urlparse(url)
         self.protocol = p.scheme or "file"
@@ -257,7 +257,7 @@ class GitDir:
 
     def __repr__(self):
         if not self.is_git_checkout:
-            return "! %s" % self.path
+            return f"! {self.path}"
 
         return self.path
 
@@ -281,32 +281,33 @@ class GitDir:
         if bare:
             return result
 
-        if self.age is not None and self.age > FRESHNESS_THRESHOLD:
-            result.add(note="last fetch %s ago" % runez.represented_duration(self.age))
+        age = self.age
+        if age is not None and age > FRESHNESS_THRESHOLD:
+            result.add(note=f"last fetch {runez.represented_duration(age)} ago")
 
         orphan_branches = self.orphan_branches
         if self.branches.current in orphan_branches:
             # Current is no more on its remote (should possibly checkout another branch and cleanup, or push)
             orphan_branches = orphan_branches[:]
             orphan_branches.remove(self.branches.current)
-            result.add(note="current branch '%s' is orphaned" % self.branches.current)
+            result.add(note=f"current branch '{self.branches.current}' is orphaned")
 
         if len(orphan_branches) == 1:
-            result.add(note="local branch '%s' can be pruned" % orphan_branches[0])
+            result.add(note=f"local branch '{orphan_branches[0]}' can be pruned")
 
         elif orphan_branches:
-            result.add(note="%s can be pruned" % runez.plural(orphan_branches, "local branch"))
+            result.add(note=f"{runez.plural(orphan_branches, 'local branch')} can be pruned")
 
         result.add(self.branches.report)
 
         if inspect_remotes and self.remote_cleanable_branches:
             if len(self.remote_cleanable_branches) == 1:
-                cleanable = "'%s'" % next(iter(self.remote_cleanable_branches))
+                cleanable = f"'{next(iter(self.remote_cleanable_branches))}'"
 
             else:
                 cleanable = runez.plural(self.remote_cleanable_branches, "remote branch")
 
-            result.add(note="%s can be cleaned" % cleanable)
+            result.add(note=f"{cleanable} can be cleaned")
 
         return result
 
@@ -316,11 +317,12 @@ class GitDir:
         :return list, str: Full git invocation + human friendly representation
         """
         cmd = ["git"]
+        joined_args = " ".join(args)
         if args and args[0] == "clone":
-            args_represented = "git %s" % " ".join(args)
+            args_represented = f"git {joined_args}"
 
         else:
-            args_represented = "git -C {} {}".format(runez.short(self.path), " ".join(args))
+            args_represented = f"git -C {runez.short(self.path)} {joined_args}"
             cmd.extend(["-C", self.path])
 
         cmd.extend(args)
@@ -331,13 +333,13 @@ class GitDir:
         :param args: Execute git command with provided args, don't capture its output, but let it show through stdout/stderr
         :return GitRunReport: Report
         """
-        cmd, pretty_args = self._git_command(args)
-        pretty_args = "git %s" % " ".join(args)
-        print("Running: %s" % output.command(pretty_args))
+        cmd, _ = self._git_command(args)
+        pretty_args = f"git {' '.join(args)}"
+        print(f"Running: {output.command(pretty_args)}")
         proc = subprocess.Popen(cmd)  # noqa: S603
         proc.communicate()
         if proc.returncode:
-            return GitRunReport(problem="git exited with code %s" % proc.returncode)
+            return GitRunReport(problem=f"git exited with code {proc.returncode}")
 
         return GitRunReport()
 
@@ -354,7 +356,7 @@ class GitDir:
             return output, GitRunReport()
 
         if not error:
-            return output, GitRunReport(problem="git exited with code %s" % proc.returncode)
+            return output, GitRunReport(problem=f"git exited with code {proc.returncode}")
 
         return output, GitRunReport(problem=shortened_message(error))
 
@@ -447,7 +449,7 @@ class GitDir:
 
         lines.append(error.representation(progress=False, note=False).strip())
         output = lines[0] if lines else "no output"
-        return GitRunReport(note="pull may have been unsuccessful (%s)" % output)
+        return GitRunReport(note=f"pull may have been unsuccessful ({output})")
 
     def clone(self, url):
         if self.folder_exists:
@@ -543,7 +545,7 @@ class GitDir:
         aspect._remote_prefix = ""
         default = self.branches.default_branches.get("origin")
         if default:
-            aspect._command += " %s" % default
+            aspect._command += f" {default}"
 
         aspect.reload()
         for remote, branches in aspect.by_remote.items():
@@ -716,7 +718,7 @@ class GitStatus(GitAspect):
             result.append(output.problem(runez.plural(self.modified, "diff")))
 
         if self.untracked:
-            result.append(output.warning("%s untracked" % len(self.untracked)))
+            result.append(output.warning(f"{len(self.untracked)} untracked"))
 
         if self.report._note:
             result.append(output.note(" ".join(self.report._note)))

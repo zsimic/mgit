@@ -45,4 +45,4 @@ def test_status(cli):
     with runez.CurrentFolder(project):
         cli.run()
         assert cli.succeeded
-        assert "%s:" % os.path.basename(project) in cli.logged.stdout
+        assert f"{os.path.basename(project)}:" in cli.logged.stdout

@@ -45,7 +45,7 @@ def get_target(path, **kwargs):
     prefs = MgitPreferences(**kwargs)
     actual_path = find_actual_path(path)
     if not actual_path or not os.path.isdir(actual_path):
-        runez.abort("No folder '%s'" % runez.short(actual_path))
+        runez.abort(f"No folder '{runez.short(actual_path)}'")
 
     if os.path.isdir(os.path.join(actual_path, ".git")):
         return GitCheckout(actual_path, prefs=prefs)
@@ -93,7 +93,7 @@ class MgitPreferences:
             return name
 
         if value is False:
-            return "!%s" % name
+            return f"!{name}"
 
         return f"{name}={value}"
 
@@ -115,12 +115,12 @@ class MgitPreferences:
                 self._represented_names.add(name)
                 continue
 
-            func = getattr(self, "set_%s" % name, None)
+            func = getattr(self, f"set_{name}", None)
             if func:
                 func(value)
                 continue
 
-            raise Exception("Internal error: add support for flag '%s'" % name)
+            raise Exception(f"Internal error: add support for flag '{name}'")
 
 
 class RemoteProject:
@@ -228,7 +228,7 @@ class GitCheckout:
     def aligned_name(self):
         name = self.name
         if self.parent and self.parent.prefs.name_size:
-            name = ("%%%ss" % self.parent.prefs.name_size) % name
+            name = f"{name:>{self.parent.prefs.name_size}}"
 
         return name
 
@@ -239,19 +239,19 @@ class GitCheckout:
         """
         report = GitRunReport(report or self.git.report(inspect_remotes=self.prefs.inspect_remotes))
 
-        result = "%s:" % self.aligned_name
+        result = f"{self.aligned_name}:"
 
         if self.git.is_git_checkout:
             branch = output.branch(self.git.branches.shortened_current_branch)
             n = len(self.git.branches.local)
             if n > 1:
-                branch += " +%s" % (n - 1)
+                branch += f" +{n - 1}"
 
-            result += " [%s]" % branch
+            result += f" [{branch}]"
 
             freshness = self.git.status.freshness
             if freshness:
-                result += " %s" % freshness
+                result += f" {freshness}"
 
         if (
             not report.has_problems
@@ -261,12 +261,12 @@ class GitCheckout:
             and self.parent.predominant
             and self.origin_project != self.parent.predominant
         ):
-            report.add(note="not part of %s" % self.parent.predominant)
+            report.add(note=f"not part of {self.parent.predominant}")
 
         if report:
             rep = report.representation()
             if rep:
-                result += "  %s" % rep
+                result += f"  {rep}"
 
         return result
 
@@ -298,7 +298,8 @@ class GitCheckout:
         print(self.header(report))
         if self.prefs.verbose or (not self.parent and self.prefs.align):
             if len(self.git.orphan_branches) > 1:
-                print("  Orphan branches: %s" % (", ".join(self.git.orphan_branches)))
+                orphan_branches = ", ".join(self.git.orphan_branches)
+                print(f"  Orphan branches: {orphan_branches}")
 
             print_modified(self.git.status.modified, output.index_change, output.worktree_change)
             print_modified(self.git.status.untracked, output.untracked_change)
@@ -384,10 +385,10 @@ class ProjectDir:
 
     @runez.cached_property
     def header(self):
-        result = "%s:" % output.workspace_path(runez.short(self.path))
+        result = f"{output.workspace_path(runez.short(self.path))}:"
 
         if not self.projects:
-            return "{} {}".format(result, output.warning("no git folders"))
+            return f"{result} {output.warning('no git folders')}"
 
         if self.predominant:
             result += output.workspace_primary(f" {len(self.projects[self.predominant])} {self.predominant}")
@@ -397,7 +398,7 @@ class ProjectDir:
 
         if self.additional:
             details = ", ".join(f"+{len(self.projects[project])} {project}" for project in self.additional)
-            result += " (%s)" % output.workspace_detail(details)
+            result += f" ({output.workspace_detail(details)})"
 
         return result
 
