@@ -69,11 +69,12 @@ still deferred.
 `src/mgit/__init__.py` still combines target discovery, workspace modeling,
 preferences, and some status rendering:
 
-- `git_parent_path()` climbs from the current directory to find a parent git
-  checkout.
-- `find_actual_path()` resolves the target path, defaulting to the containing
-  git checkout when run inside one.
-- `get_target()` returns either `GitCheckout` or `ProjectDir`.
+- `CliInvocation.target` always has a `Path`, defaulting to the current folder.
+- `find_actual_path()` resolves that target and is the target-normalization
+  boundary. Current-folder targets climb to a parent git checkout, then fall
+  back to the current directory.
+- `get_target()` accepts a `Path` target and returns either `GitCheckout` or
+  `ProjectDir`.
 - `MgitPreferences` has been simplified to active fields only: name alignment,
   fetch/fetch age, pull, and optional remote inspection.
 - `GitCheckout` wraps one local path and prints status.

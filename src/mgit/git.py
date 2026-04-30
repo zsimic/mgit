@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import collections
 import logging
-import os
 import re
 import subprocess
 import time
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 import runez
@@ -204,7 +204,7 @@ class GitURL:
         :param str|None dirname: Set 'self.repo' from 'dirname' of url
         """
         if dirname and "/" in dirname:
-            dirname = os.path.basename(dirname)
+            dirname = PurePosixPath(dirname).name
 
         self.repo = dirname or "unknown"
 
@@ -239,27 +239,29 @@ class GitURL:
         self.hostname = p.hostname or "local"
         self.relative_path = p.path.rstrip("/")
         self.username = p.username
-        self._set_name(os.path.basename(self.relative_path))
-        self._set_repo(os.path.dirname(self.relative_path))
+        url_path = PurePosixPath(self.relative_path)
+        parent = "" if url_path.parent == PurePosixPath(".") else str(url_path.parent)
+        self._set_name(url_path.name)
+        self._set_repo(parent)
 
 
 class GitDir:
     """Model a local git repo"""
 
-    def __init__(self, path):
+    def __init__(self, path: Path):
         """
-        :param str path: Path to local repo
+        :param Path path: Path to local repo
         """
         self.path = path
-        self.folder_exists = os.path.exists(path)
-        self.is_git_checkout = self.folder_exists and os.path.isdir(os.path.join(path, ".git"))
+        self.folder_exists = self.path.exists()
+        self.is_git_checkout = self.folder_exists and (self.path / ".git").is_dir()
         self.remote_info = None
 
     def __repr__(self):
         if not self.is_git_checkout:
             return f"! {self.path}"
 
-        return self.path
+        return str(self.path)
 
     def report(self, bare=False, inspect_remotes=False) -> GitRunReport:
         """
@@ -318,15 +320,16 @@ class GitDir:
         :return list, str: Full git invocation + human friendly representation
         """
         cmd = ["git"]
-        joined_args = " ".join(args)
+        represented_args = [str(arg) for arg in args]
+        joined_args = " ".join(represented_args)
         if args and args[0] == "clone":
             args_represented = f"git {joined_args}"
 
         else:
             args_represented = f"git -C {runez.short(self.path)} {joined_args}"
-            cmd.extend(["-C", self.path])
+            cmd.extend(["-C", str(self.path)])
 
-        cmd.extend(args)
+        cmd.extend(represented_args)
         return cmd, args_represented
 
     def run_git_command(self, *args) -> tuple[str, GitRunReport]:
@@ -425,8 +428,8 @@ class GitDir:
             return GitRunReport(problem="folder already exists, can't clone")
 
         _, error = self.run_git_command("clone", url, self.path)
-        self.folder_exists = os.path.exists(self.path)
-        self.is_git_checkout = self.folder_exists and os.path.isdir(os.path.join(self.path, ".git"))
+        self.folder_exists = self.path.exists()
+        self.is_git_checkout = self.folder_exists and (self.path / ".git").is_dir()
         self.reset_cached_properties()
 
         if error.has_problems:
@@ -441,7 +444,7 @@ class GitDir:
         """
         for name in FETCH_AGE_FILES:
             try:
-                last_fetch = os.path.getmtime(os.path.join(os.path.join(self.path, ".git"), name))
+                last_fetch = (self.path / ".git" / name).stat().st_mtime
                 return int(time.time() - last_fetch)
 
             except OSError:

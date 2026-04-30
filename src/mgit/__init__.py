@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import collections
 import logging
-import os
+from pathlib import Path
 
 import runez
 
@@ -12,41 +12,33 @@ from mgit.git import GitDir, GitRunReport
 LOG = logging.getLogger(__name__)
 
 
-def git_parent_path(path):
+def find_actual_path(path: Path) -> Path:
     """
-    :param str path: Path to search
-    :return str|None: First parent of 'path' that has a .git folder, if any
+    :param Path path: Base path, current folder targets look for first parent folder with a .git subfolder
+    :return Path: Actual path to use as target
     """
-    if not path or len(path) <= 5:
-        return None
-
-    if os.path.isdir(os.path.join(path, ".git")):
+    path = path.expanduser().absolute()
+    current = Path.cwd()
+    if path != current:
         return path
 
-    return git_parent_path(os.path.dirname(path))
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").is_dir():
+            return candidate
+
+    return current
 
 
-def find_actual_path(path):
+def get_target(path: Path, fetch: bool, fetch_age: int | None, pull: bool):
     """
-    :param str|None path: Base path, if None or '.': look for first parent folder with a .git subfolder
-    :return str: Actual path to use as target
-    """
-    if not path or path == ".":
-        path = git_parent_path(os.getcwd()) or "."
-
-    return runez.resolved_path(path)
-
-
-def get_target(path, fetch: bool, fetch_age: int, pull: bool):
-    """
-    :param str path: Path to target
+    :param Path path: Path to target
     """
     prefs = MgitPreferences(fetch=fetch, fetch_age=fetch_age, pull=pull)
     actual_path = find_actual_path(path)
-    if not actual_path or not os.path.isdir(actual_path):
+    if not actual_path.is_dir():
         runez.abort(f"No folder '{runez.short(actual_path)}'")
 
-    if os.path.isdir(os.path.join(actual_path, ".git")):
+    if (actual_path / ".git").is_dir():
         return GitCheckout(actual_path, prefs=prefs)
 
     return ProjectDir(actual_path, prefs=prefs)
@@ -67,7 +59,7 @@ def print_modified(items, state_style, worktree_style=None):
 class MgitPreferences:
     """Various prefs"""
 
-    def __init__(self, name_size: int | None = None, fetch=False, fetch_age=30, pull=False, inspect_remotes=False):
+    def __init__(self, name_size: int | None = None, fetch=False, fetch_age: int | None = 30, pull=False, inspect_remotes=False):
         self.name_size = name_size  # How many chars to align names when displaying list of checkouts
         self.fetch = fetch  # Auto-fetch before showing status
         self.fetch_age = fetch_age  # Auto-fetch only when older than this many seconds, None means always
@@ -139,16 +131,17 @@ class UnknownProject(RemoteProject):
 class GitCheckout:
     """Represents a local git checkout"""
 
-    def __init__(self, path, parent=None, prefs=None):
+    def __init__(self, path: Path, parent=None, prefs=None):
         """
-        :param str path: Full path to local checkout
+        :param Path path: Full path to local checkout
         :param ProjectDir|None parent: Parent project dir
         :param MgitPreferences|None prefs: Optional prefs to use
         """
         # Basename of local git folder (usually matches remote repo base name)
-        self.basename = os.path.basename(path)
-        self.directory_exists = os.path.isdir(path)
-        self.git = GitDir(path)
+        self.path = path
+        self.basename = self.path.name
+        self.directory_exists = self.path.is_dir()
+        self.git = GitDir(self.path)
         self.parent = parent
         self._prefs = prefs or MgitPreferences()
 
@@ -250,9 +243,9 @@ class GitCheckout:
 class ProjectDir:
     """Info shown for a given directory"""
 
-    def __init__(self, path, prefs=None):
+    def __init__(self, path: Path, prefs=None):
         """
-        :param str path: Path to folder
+        :param Path path: Path to folder
         :param MgitPreferences|None prefs: Display prefs
         """
         self.path = path  # Path to folder to examine
@@ -265,16 +258,15 @@ class ProjectDir:
         self.scan()
 
     def __repr__(self):
-        return os.path.basename(self.path)
+        return self.path.name
 
     def scan(self):
         self.checkouts = []
-        for fname in os.listdir(self.path):
-            if fname and fname.startswith("."):
+        for source_path in self.path.iterdir():
+            if source_path.name.startswith("."):
                 continue
 
-            source_path = os.path.join(self.path, fname)
-            if os.path.isdir(source_path):
+            if source_path.is_dir():
                 r = GitCheckout(source_path, parent=self)
                 self.checkouts.append(r)
                 if r.git.is_git_checkout:
@@ -309,9 +301,9 @@ class ProjectDir:
                 if name in seen:
                     continue
 
-                path = os.path.join(self.path, name)
-                if os.path.isdir(path):
-                    path += ".1"
+                path = self.path / name
+                if path.is_dir():
+                    path = path.with_name(f"{path.name}.1")
 
                 r = GitCheckout(path, parent=self)
                 r.git.remote_info = project

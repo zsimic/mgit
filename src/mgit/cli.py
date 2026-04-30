@@ -4,6 +4,7 @@ import argparse
 import logging
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 import runez
 
@@ -16,7 +17,7 @@ from mgit.output import branch_default, branch_orphaned, color_context, index_ch
 @dataclass(frozen=True)
 class CliInvocation:
     command: CommandSpec
-    target: str | None
+    target: Path
     verbose: bool = False
     color: str = "auto"
 
@@ -60,7 +61,7 @@ def parse_cli_args(argv=None, parser=None):
 
     return CliInvocation(
         command=command,
-        target=target_args[0] if target_args else None,
+        target=Path(target_args[0]) if target_args else Path("."),
         verbose=namespace.verbose,
         color=namespace.color,
     )

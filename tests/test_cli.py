@@ -110,19 +110,19 @@ def test_command_registry_core_slice():
 @pytest.mark.parametrize(
     ("argv", "command", "target"),
     [
-        ([], "status", None),
-        (["status"], "status", None),
-        (["s"], "status", None),
-        (["fetch"], "fetch", None),
-        (["f"], "fetch", None),
-        (["pull"], "pull", None),
-        (["p"], "pull", None),
-        (["branches"], "branches", None),
-        (["b"], "branches", None),
-        (["groom"], "groom", None),
-        (["g"], "groom", None),
-        (["main"], "main", None),
-        (["m"], "main", None),
+        ([], "status", "."),
+        (["status"], "status", "."),
+        (["s"], "status", "."),
+        (["fetch"], "fetch", "."),
+        (["f"], "fetch", "."),
+        (["pull"], "pull", "."),
+        (["p"], "pull", "."),
+        (["branches"], "branches", "."),
+        (["b"], "branches", "."),
+        (["groom"], "groom", "."),
+        (["g"], "groom", "."),
+        (["main"], "main", "."),
+        (["m"], "main", "."),
         (["status", "repo"], "status", "repo"),
         (["repo"], "status", "repo"),
     ],
@@ -130,7 +130,7 @@ def test_command_registry_core_slice():
 def test_parse_core_commands(argv, command, target):
     invocation = parse_cli_args(argv)
     assert invocation.command.name == command
-    assert invocation.target == target
+    assert invocation.target == Path(target)
 
 
 def test_parse_rejects_extra_targets(cli):
@@ -299,7 +299,7 @@ def test_cleanable_branches_require_default_branch_ancestry(tmp_path):
     commit_file(work, "v2gpt.txt", "still in progress\n", "v2gpt work")
     git(work, "push", "-u", "origin", "v2gpt")
 
-    git_dir = GitDir(str(work))
+    git_dir = GitDir(work)
 
     assert git_dir.cleanable_base_ref == "origin/main"
     assert git_dir.local_cleanable_branches == {"done"}
@@ -319,7 +319,7 @@ def test_cleanable_branches_detect_squashed_content(tmp_path):
     git(work, "commit", "-m", "squash squashed")
     git(work, "push", "origin", "main")
 
-    git_dir = GitDir(str(work))
+    git_dir = GitDir(work)
 
     assert not git_dir.is_ancestor("squashed", "origin/main")
     assert git_dir.merge_is_noop("squashed", "origin/main")
