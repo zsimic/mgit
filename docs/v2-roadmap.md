@@ -28,8 +28,12 @@ accurate as work proceeds.
 - [x] Introduce a command registry with command metadata.
 - [x] Introduce argparse parsing for the v2 command shape.
 - [ ] Move target discovery into a dedicated module.
-- [ ] Enforce depth-1 workspace scanning.
-- [ ] Move output/color/report rendering into a dedicated module.
+- [x] Enforce depth-1 workspace scanning.
+- [x] Add an output/color helper module.
+- [ ] Move remaining status/report rendering into a dedicated module.
+- [x] Simplify `MgitPreferences` to active fetch/pull/display fields.
+- [x] Make default-branch resolution a cached `GitDir.default_branch`
+  property.
 - [ ] Keep `GitRunReport`, `GitURL`, and parser tests green during moves.
 
 Suggested module split:
@@ -78,31 +82,32 @@ Suggested module split:
 
 ## Phase 4: Dependency And Packaging Cleanup
 
-- [ ] Remove Click after argparse replacement is complete.
+- [ ] Remove the unused Click dependency from package metadata.
 - [ ] Decide whether to remove `runez` or keep a small dependency on it.
 - [ ] If removing `runez`, replace cached properties, paths, durations, aborts,
   and coloring with stdlib code.
 - [ ] Revisit `license-files` vs the actual `LICENSE` file.
-- [ ] Update README examples and help synopsis.
-- [ ] Update contributing docs and release notes.
+- [x] Update README examples and help synopsis for the implemented v2 commands.
+- [x] Update contributing docs for the current `pyproject.toml`/`uv` workflow.
+- [ ] Add release notes.
 
-## First Implementation Slice
+## Completed First Implementation Slice
 
-The first coding slice should serve the two common commands first:
+The first coding slice serves the two common command loops first:
 
-1. Add parser and command-registry tests for `mgit`, `mgit status`, `mgit s`,
+1. Parser and command-registry tests cover `mgit`, `mgit status`, `mgit s`,
    `mgit fetch`, `mgit f`, `mgit pull`, `mgit p`, `mgit groom`, and `mgit g`.
-2. Implement an argparse entry point that maps those commands onto existing
+2. An argparse entry point maps those commands onto existing
    git/status behavior.
-3. Preserve the inspect-then-act update loop: `mgit f` reports remote state, and
-   `mgit p` pulls only when explicitly requested.
-4. Add the single-repo `g` workflow: fetch/prune, resolve default branch,
-   refuse on pending changes, checkout default branch when needed, pull safely,
-   and delete stale local branches.
-5. Add `mgit main`/`m` around that core.
-6. Keep `-v/--verbose` out of output-shape decisions.
-7. Defer `--short`/`--long`.
-8. Do not carry legacy v1 action flags into v2; use commands such as `mgit f`
+3. The inspect-then-act update loop is preserved: `mgit f` reports remote
+   state, and `mgit p` pulls only when explicitly requested.
+4. The single-repo `g` workflow fetches/prunes, resolves the default branch,
+   refuses on pending changes, checks out the default branch when needed, pulls
+   safely, and deletes stale local branches.
+5. `mgit main`/`m` uses the same default-branch resolution.
+6. `-v/--verbose` stays out of output-shape decisions.
+7. `--short`/`--long` remain deferred.
+8. Legacy v1 action flags were not carried into v2; use commands such as `mgit f`
    and `mgit p` instead.
 
 This makes the most common loops work first: `mgit`, then `mgit f`/`mgit p`

@@ -1,6 +1,7 @@
 Contributions are welcome!
 
-tox_ is used for building and testing, ``setup.py`` is kept simple thanks to setupmeta_.
+tox_ is used for full test runs. Packaging metadata lives in
+``pyproject.toml`` and versions come from ``setuptools-scm``.
 
 Development
 ===========
@@ -10,10 +11,9 @@ To get going locally, simply do this::
     git clone https://github.com/zsimic/mgit.git
     cd mgit
 
-    uv venv
-    uv pip install -r tests/requirements.txt -e .
+    uv sync
 
-    # You have a venv now in ./.venv, use it, open it with pycharm etc
+    # You have a venv now in ./.venv
     source .venv/bin/activate
     which python
     which mgit
@@ -25,15 +25,22 @@ To get going locally, simply do this::
 Running the tests
 =================
 
-To run the tests, simply run ``tox``.
+Fast local checks::
 
-Run:
+    .venv/bin/pytest -q
+    ruff check
 
-* ``tox -e py314`` (for example) to limit test run to only one python version.
+Full confidence check::
 
-* ``tox -e style`` to run style checks only
+    tox
 
-* etc
+Useful focused tox runs:
+
+* ``tox -e py39`` for the minimum supported Python version.
+
+* ``tox -e py314`` for the newest supported Python version.
+
+* ``tox -e style`` for packaged lint/type checks.
 
 
 Test coverage
@@ -45,5 +52,3 @@ Run ``tox``, then open ``.tox/test-reports/htmlcov/index.html``
 .. _pyenv: https://github.com/pyenv/pyenv
 
 .. _tox: https://github.com/tox-dev/tox
-
-.. _setupmeta: https://pypi.org/project/setupmeta/

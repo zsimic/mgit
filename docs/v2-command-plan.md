@@ -14,8 +14,8 @@ plan, not a promise. Update it as decisions settle.
   changed paths, while workspace status stays compact.
 - Prefer stdlib implementation unless a dependency removes enough complexity to
   justify itself.
-- Use argparse for v2 unless a concrete issue proves Click is still worth the
-  dependency.
+- Use argparse for v2. Revisit only if a concrete issue proves Click is worth
+  carrying as a runtime dependency again.
 
 ## Proposed CLI Shape
 
@@ -71,8 +71,8 @@ Target handling:
 
 ## Command Registry
 
-The implementation should use an explicit command registry. Each command should
-define:
+The implementation uses an explicit command registry in `src/mgit/commands.py`.
+Each command defines:
 
 - canonical name
 - aliases
@@ -82,7 +82,7 @@ define:
 - whether it mutates remote state
 - handler function
 
-First-iteration command candidates:
+Implemented command set:
 
 | Command | Aliases | Scope | Mutates | Meaning |
 | --- | --- | --- | --- | --- |
@@ -90,8 +90,13 @@ First-iteration command candidates:
 | `fetch` | `f` | both | local refs | Run `git fetch --all --prune`, then status. |
 | `pull` | `p` | both | worktree | Pull with rebase only when safe. |
 | `main` | `m` | single | worktree | Checkout the default branch. |
-| `groom` | `g` | single first, both later | local branches | Run the local branch-cleanup workflow. |
+| `groom` | `g` | single | local branches | Run the local branch-cleanup workflow. |
 | `branches` | `b` | both | no | Show local branches, useful across workspaces. |
+
+Planned next command:
+
+| Command | Aliases | Scope | Mutates | Meaning |
+| --- | --- | --- | --- | --- |
 | `clone` | `c` | command-specific | filesystem | Clone URL into configured best-match location. |
 
 Maybe-later destructive commands:
@@ -166,8 +171,8 @@ Alias policy:
   default branches, `HEAD`, `main`, or `master`.
 - Leaves non-tracking local branches alone in the first implementation.
 - Reports what it did and what it skipped.
-- First iteration should prioritize the single-repo flow. Workspace grooming can
-  come after single-repo behavior is solid.
+- Current implementation is single-repo only. Workspace grooming can come after
+  single-repo behavior is solid.
 
 `groom-remote` and `groom-all`:
 

@@ -55,10 +55,14 @@ The short aliases are the intended interface:
 
 - ``status`` / ``s``: show repo or workspace status. This is the default.
 - ``fetch`` / ``f``: refresh remote refs, then report status.
-- ``pull`` / ``p``: pull with rebase when the worktree is clean.
+- ``pull`` / ``p``: pull with rebase when safety checks pass.
 - ``main`` / ``m``: checkout the default branch, even if it is ``master``.
 - ``branches`` / ``b``: list local branches with small annotations.
 - ``groom`` / ``g``: local-only cleanup workflow for stale local branches.
+
+The command shape is::
+
+    mgit [-v] [--color auto|always|never] [COMMAND] [TARGET]
 
 You can pass a target path to most commands::
 
@@ -109,8 +113,7 @@ Safety model
 Commands that act are explicit:
 
 - ``mgit f`` updates local remote refs with ``git fetch --all --prune``.
-- ``mgit p`` pulls with rebase only when pending local changes would not make
-  that risky.
+- ``mgit p`` pulls with rebase only when the checkout passes safety checks.
 - ``mgit g`` is local-only: it does not delete remote branches. It fetches,
   moves back to the default branch, pulls safely, and deletes only local
   branches whose tracked remote branch is gone.
