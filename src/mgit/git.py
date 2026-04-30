@@ -261,7 +261,7 @@ class GitDir:
 
         return self.path
 
-    def report(self, bare=False, inspect_remotes=False):
+    def report(self, bare=False, inspect_remotes=False) -> GitRunReport:
         """
         :param bool bare: Bare report only
         :param bool inspect_remotes: If True, report on which remote branches are cleanable
@@ -311,7 +311,7 @@ class GitDir:
 
         return result
 
-    def _git_command(self, args):
+    def _git_command(self, args) -> tuple[list[str], str]:
         """
         :param list|tuple args: Git command + args to use
         :return list, str: Full git invocation + human friendly representation
@@ -328,7 +328,7 @@ class GitDir:
         cmd.extend(args)
         return cmd, args_represented
 
-    def run_raw_git_command(self, *args):
+    def run_raw_git_command(self, *args) -> GitRunReport:
         """
         :param args: Execute git command with provided args, don't capture its output, but let it show through stdout/stderr
         :return GitRunReport: Report
@@ -343,7 +343,7 @@ class GitDir:
 
         return GitRunReport()
 
-    def run_git_command(self, *args):
+    def run_git_command(self, *args) -> tuple[str, GitRunReport]:
         """
         :param args: Execute git command with provided args
         :return str, GitRunReport: Output from git command + report on eventual error
@@ -360,7 +360,7 @@ class GitDir:
 
         return output, GitRunReport(problem=shortened_message(error))
 
-    def fallback_branch(self):
+    def fallback_branch(self) -> str:
         """
         :return str: Best branch to fallback to if we need to clean or reset
         """
@@ -371,13 +371,13 @@ class GitDir:
             if branch not in self.orphan_branches:
                 return branch
 
-        return self.branches.default_branches.get("origin")
+        return self.branches.default_branches.get("origin") or "main"
 
     def reset_cached_properties(self):
         """Reset cached properties that may have changed after a fetch or pull"""
         runez.cached_property.reset(self)
 
-    def fetch(self, age: int | None = 30):
+    def fetch(self, age: int | None = 30) -> GitRunReport:
         """
         :param int|None age: Fetch if age is older than specified number of seconds, use None to fetch unconditionally
         :return GitRunReport:
@@ -394,7 +394,7 @@ class GitDir:
         self.reset_cached_properties()
         return error
 
-    def pull(self):
+    def pull(self) -> GitRunReport:
         """Pull from tracked remote"""
         if not self.is_git_checkout:
             return GitRunReport.not_git().cant_pull()
@@ -451,7 +451,7 @@ class GitDir:
         output = lines[0] if lines else "no output"
         return GitRunReport(note=f"pull may have been unsuccessful ({output})")
 
-    def clone(self, url):
+    def clone(self, url) -> GitRunReport:
         if self.folder_exists:
             return GitRunReport(problem="folder already exists, can't clone")
 
@@ -466,7 +466,7 @@ class GitDir:
         return GitRunReport(progress="cloned successfully")
 
     @runez.cached_property
-    def age(self):
+    def age(self) -> int | None:
         """
         :return int|None: Elapsed time in seconds since last fetch
         """
@@ -479,28 +479,28 @@ class GitDir:
                 pass
 
     @runez.cached_property
-    def status(self):
+    def status(self) -> GitStatus:
         """
         :return GitStatus: Parsed info from 'git status --porcelain --branch'
         """
         return GitStatus(self)
 
     @runez.cached_property
-    def config(self):
+    def config(self) -> GitConfig:
         """
         :return GitConfig: Parsed info from 'git config --list'
         """
         return GitConfig(self)
 
     @runez.cached_property
-    def branches(self):
+    def branches(self) -> GitBranches:
         """
         :return GitConfig: Parsed info from 'git branch --list --all'
         """
         return GitBranches(self)
 
     @runez.cached_property
-    def orphan_branches(self):
+    def orphan_branches(self) -> list[str]:
         """
         :return list(str): Local branch names that were deleted on their corresponding remote
         """
@@ -513,7 +513,7 @@ class GitDir:
         return result
 
     @runez.cached_property
-    def special_branches(self):
+    def special_branches(self) -> set[str]:
         result = set(self.branches.default_branches.values())
         result.add("HEAD")
         result.add("main")
@@ -521,7 +521,7 @@ class GitDir:
         return result
 
     @runez.cached_property
-    def local_cleanable_branches(self):
+    def local_cleanable_branches(self) -> set[str]:
         """
         :return set: Local branches that can be cleaned
         """
@@ -535,7 +535,7 @@ class GitDir:
         return result
 
     @runez.cached_property
-    def remote_cleanable_branches(self):
+    def remote_cleanable_branches(self) -> set[str]:
         """
         :return set: Remote branches that can be cleaned
         """
@@ -595,7 +595,7 @@ class GitAspect:
         for line in self._lines:
             self._process_line(line)
 
-    def _process_line(self, line):
+    def _process_line(self, line: str) -> None:
         """Process `line`"""
 
 
@@ -614,7 +614,7 @@ class GitBranches(GitAspect):
         super().__init__(parent, auto_load=auto_load)
 
     @property
-    def shortened_current_branch(self):
+    def shortened_current_branch(self) -> str:
         return str(self.current or "HEAD").replace("feature/", "f/").replace("bugfix/", "b/")
 
     def _process_line(self, line):
@@ -668,7 +668,7 @@ class GitConfig(GitAspect):
         super().__init__(parent, auto_load=auto_load)
 
     @runez.cached_property
-    def repo_name(self):
+    def repo_name(self) -> str | None:
         """
         :return str: Most significant repository name
         """
@@ -708,7 +708,7 @@ class GitStatus(GitAspect):
         super().__init__(parent, auto_load=auto_load)
 
     @property
-    def freshness(self):
+    def freshness(self) -> str:
         """Short freshness overview"""
         result = []
         if self.report._problem:
@@ -782,7 +782,7 @@ def _report_sorter(enum):
     return enum[0]  # Non-prefixed message stay where they were
 
 
-def _add_sorted(result, target, color, n, max_chars):
+def _add_sorted(result, target, color, n, max_chars) -> int:
     """
     :param list(str) result: Where to accumulate sorted report
     :param list(str) target: Target to sort, respecting '<' and '>' prefixing

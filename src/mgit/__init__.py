@@ -202,10 +202,7 @@ class GitCheckout:
         """
         :return str: Basename of local git folder + remote basename if it differs
         """
-        if not self.git.config.repo_name or not self.git.is_git_checkout or self.basename == self.git.config.repo_name:
-            return self.basename
-
-        return f"{self.basename} ({self.git.config.repo_name})"
+        return self.basename
 
     @runez.cached_property
     def origin_project(self):
