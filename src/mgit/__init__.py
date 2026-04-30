@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections
 import logging
 import os
@@ -66,20 +68,20 @@ def print_modified(items, state_style, worktree_style=None):
 class MgitPreferences:
     """Various prefs"""
 
-    name_size = None  # How many chars to align names when displaying list of checkouts
-    align = True  # Whether to align names or not
-    verbose = False  # Show verbose output
-    all = False  # Show all entries, including missing/invalid checkout folders
-    fetch = False  # Auto-fetch before showing status
-    fetch_age = 30  # Auto-fetch only when older than this many seconds, None means always
-    pull = False  # Auto-pull before showing status
-    inspect_remotes = False  # Inspect remote branches to report cleanable (slower)
-
     def __init__(self, **kwargs):
+        self.name_size: int | None = None  # How many chars to align names when displaying list of checkouts
+        self.align = True  # Whether to align names or not
+        self.verbose = False  # Show verbose output
+        self.all = False  # Show all entries, including missing/invalid checkout folders
+        self.fetch = False  # Auto-fetch before showing status
+        self.fetch_age: int | None = 30  # Auto-fetch only when older than this many seconds, None means always
+        self.pull = False  # Auto-pull before showing status
+        self.inspect_remotes = False  # Inspect remote branches to report cleanable (slower)
+        self._represented_names: set[str] = set()
         self.update(**kwargs)
 
     def __repr__(self):
-        result = [self._value_representation(k) for k in sorted(self.__dict__)]
+        result = [self._value_representation(k) for k in sorted(self._represented_names)]
         return " ".join(s for s in result if s is not None)
 
     def _value_representation(self, name):
@@ -104,11 +106,13 @@ class MgitPreferences:
         """
         self.align = value is None
         self.verbose = value is False
+        self._represented_names.update(("align", "verbose"))
 
     def update(self, **kwargs):
         for name, value in kwargs.items():
             if hasattr(self, name):
                 setattr(self, name, value)
+                self._represented_names.add(name)
                 continue
 
             func = getattr(self, "set_%s" % name, None)
@@ -194,7 +198,7 @@ class GitCheckout:
         self.directory_exists = os.path.isdir(path)
         self.git = GitDir(path)
         self.parent = parent
-        self._prefs = prefs if prefs or parent else MgitPreferences()
+        self._prefs = prefs or MgitPreferences()
 
     def __repr__(self):
         return self.basename

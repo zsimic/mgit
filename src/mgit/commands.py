@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 
@@ -37,7 +39,12 @@ COMMANDS = (
 COMMAND_BY_TOKEN = {token: command for command in COMMANDS for token in command.names}
 
 
-def command_for(token):
+def default_command() -> CommandSpec:
+    """Default command used when no command token is provided."""
+    return COMMAND_BY_TOKEN["status"]
+
+
+def command_for(token: str) -> CommandSpec | None:
     """
     :param str token: Command name or alias
     :return CommandSpec|None: Matching command

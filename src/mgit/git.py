@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections
 import logging
 import os
@@ -373,7 +375,7 @@ class GitDir:
         """Reset cached properties that may have changed after a fetch or pull"""
         runez.cached_property.reset(self)
 
-    def fetch(self, age=30):
+    def fetch(self, age: int | None = 30):
         """
         :param int|None age: Fetch if age is older than specified number of seconds, use None to fetch unconditionally
         :return GitRunReport:
@@ -557,7 +559,7 @@ class GitDir:
 class GitAspect:
     """Common ancestor for info gathered from git"""
 
-    _command = None
+    _command = ""
 
     def __init__(self, parent, auto_load=True):
         self._parent = parent
@@ -566,7 +568,7 @@ class GitAspect:
             self.reload()
 
     def __repr__(self):
-        return self._command
+        return self._command or self.__class__.__name__
 
     def reload(self):
         for k in self.__class__.__dict__:
@@ -580,7 +582,7 @@ class GitAspect:
             v = collections.defaultdict(v.default_factory) if isinstance(v, collections.defaultdict) else v.__class__()
             setattr(self, k, v)
 
-        if not self._parent.is_git_checkout:
+        if not self._parent.is_git_checkout or not self._command:
             return
 
         output, error = self._parent.run_git_command(*self._command.split())

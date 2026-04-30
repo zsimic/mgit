@@ -7,7 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 import runez
 
 from mgit import get_target, GitCheckout, print_modified
-from mgit.commands import command_for, command_help, CommandSpec
+from mgit.commands import command_for, command_help, CommandSpec, default_command
 from mgit.git import GitRunReport
 from mgit.output import branch_default, branch_orphaned, color_context, index_change, untracked_change, worktree_change
 
@@ -45,7 +45,7 @@ def build_parser():
 def parse_cli_args(argv=None, parser=None):
     parser = parser or build_parser()
     namespace = parser.parse_args(argv)
-    command = command_for("status")
+    command = default_command()
     target_args = namespace.args
 
     if namespace.args:
