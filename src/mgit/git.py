@@ -563,7 +563,7 @@ class GitAspect:
 
     _command = ""
 
-    def __init__(self, parent, auto_load=True):
+    def __init__(self, parent: GitDir, auto_load=True):
         self._parent = parent
         self._lines = None  # Lines from output of last command run, for troubleshooting
         if auto_load:

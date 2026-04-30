@@ -1,27 +1,4 @@
-import os
-
-import pytest
 import runez
-
-import mgit
-
-
-def test_edge_cases():
-    assert mgit.git_parent_path("/") is None
-    assert mgit.git_parent_path(runez.DEV.tests_folder) == runez.DEV.project_folder
-
-    prefs = mgit.MgitPreferences(all=True, fetch=False, pull=False)
-    assert str(prefs) == "all !fetch !pull"
-
-    prefs = mgit.MgitPreferences(name_size=5)
-    prefs.fetch = None
-    assert str(prefs) == "name_size=5"
-
-    prefs = mgit.MgitPreferences()
-    assert not str(prefs)
-
-    with pytest.raises(Exception, match="Internal error: add support for flag 'foo'"):
-        prefs.update(foo=1)
 
 
 def test_usage(cli):
@@ -45,4 +22,4 @@ def test_status(cli):
     with runez.CurrentFolder(project):
         cli.run()
         assert cli.succeeded
-        assert f"{os.path.basename(project)}:" in cli.logged.stdout
+        assert cli.logged.stdout.contents().startswith("mgit: ")

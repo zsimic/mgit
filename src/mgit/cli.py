@@ -242,7 +242,7 @@ def handle_branches(target, _invocation):
         return 0
 
     for checkout in target.checkouts:
-        if target.prefs.all or checkout.git.is_git_checkout:
+        if checkout.git.is_git_checkout:
             print(f"{checkout.name}:")
             print_branch_report(checkout, indent="  ")
 

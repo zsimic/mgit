@@ -37,12 +37,11 @@ def find_actual_path(path):
     return runez.resolved_path(path)
 
 
-def get_target(path, **kwargs):
+def get_target(path, fetch: bool, fetch_age: int, pull: bool):
     """
     :param str path: Path to target
-    :param kwargs: Optional preferences
     """
-    prefs = MgitPreferences(**kwargs)
+    prefs = MgitPreferences(fetch=fetch, fetch_age=fetch_age, pull=pull)
     actual_path = find_actual_path(path)
     if not actual_path or not os.path.isdir(actual_path):
         runez.abort(f"No folder '{runez.short(actual_path)}'")
@@ -68,46 +67,12 @@ def print_modified(items, state_style, worktree_style=None):
 class MgitPreferences:
     """Various prefs"""
 
-    def __init__(self, **kwargs):
-        self.name_size: int | None = None  # How many chars to align names when displaying list of checkouts
-        self.all = False  # Show all entries, including missing/invalid checkout folders
-        self.fetch = False  # Auto-fetch before showing status
-        self.fetch_age: int | None = 30  # Auto-fetch only when older than this many seconds, None means always
-        self.pull = False  # Auto-pull before showing status
-        self.inspect_remotes = False  # Inspect remote branches to report cleanable (slower)
-        self._represented_names: set[str] = set()
-        self.update(**kwargs)
-
-    def __repr__(self):
-        result = [self._value_representation(k) for k in sorted(self._represented_names)]
-        return " ".join(s for s in result if s is not None)
-
-    def _value_representation(self, name):
-        value = getattr(self, name, None)
-        if value is None:
-            return None
-
-        if value is True:
-            return name
-
-        if value is False:
-            return f"!{name}"
-
-        return f"{name}={value}"
-
-    def update(self, **kwargs):
-        for name, value in kwargs.items():
-            if hasattr(self, name):
-                setattr(self, name, value)
-                self._represented_names.add(name)
-                continue
-
-            func = getattr(self, f"set_{name}", None)
-            if func:
-                func(value)
-                continue
-
-            raise Exception(f"Internal error: add support for flag '{name}'")
+    def __init__(self, name_size: int | None = None, fetch=False, fetch_age=30, pull=False, inspect_remotes=False):
+        self.name_size = name_size  # How many chars to align names when displaying list of checkouts
+        self.fetch = fetch  # Auto-fetch before showing status
+        self.fetch_age = fetch_age  # Auto-fetch only when older than this many seconds, None means always
+        self.pull = pull  # Auto-pull before showing status
+        self.inspect_remotes = inspect_remotes  # Inspect remote branches to report cleanable (slower)
 
 
 class RemoteProject:
@@ -237,14 +202,7 @@ class GitCheckout:
             if freshness:
                 result += f" {freshness}"
 
-        if (
-            not report.has_problems
-            and self.parent
-            and self.prefs
-            and self.prefs.all
-            and self.parent.predominant
-            and self.origin_project != self.parent.predominant
-        ):
+        if not report.has_problems and self.parent and self.parent.predominant and self.origin_project != self.parent.predominant:
             report.add(note=f"not part of {self.parent.predominant}")
 
         if report:
@@ -258,7 +216,7 @@ class GitCheckout:
         """Apply switches as specified by prefs"""
         report = GitRunReport()
         if self.prefs.pull:
-            if self.prefs.all and not self.git.folder_exists:
+            if not self.git.folder_exists:
                 if self.git.remote_info and self.git.remote_info.clone_url:
                     report.add(self.git.clone(self.git.remote_info.clone_url))
 
@@ -333,7 +291,7 @@ class ProjectDir:
                 self.predominant = top
                 self.additional = self.additional[1:]
 
-        if not self.prefs.all or not self.predominant:
+        if not self.predominant:
             self.stash_projects = {}
 
         else:
@@ -360,7 +318,7 @@ class ProjectDir:
                 self.checkouts.append(r)
 
         self.checkouts = sorted(self.checkouts, key=lambda x: x.basename)
-        visible = [c for c in self.checkouts if self.prefs.all or c.git.is_git_checkout]
+        visible = [c for c in self.checkouts if c.git.is_git_checkout]
         if self.projects and visible:
             self.prefs.name_size = min(36, max(len(c.name) for c in visible))
 
@@ -390,5 +348,5 @@ class ProjectDir:
         """Show checkout status"""
         print(self.header)
         for checkout in self.checkouts:
-            if self.prefs.all or checkout.git.is_git_checkout:
+            if checkout.git.is_git_checkout:
                 checkout.print_status()
