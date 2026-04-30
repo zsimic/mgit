@@ -32,7 +32,8 @@ Use these from the repo root:
 - `.venv/bin/pytest -vv --cov=src tests` for local coverage checks.
 - `ruff check` and `ruff format --diff` directly; `ruff` is on `PATH`.
 - `tox -e style` for the packaged style environment.
-- `tox -e py314` for the primary tox test environment.
+- `tox -e py39` for the minimum supported Python version.
+- `tox -e py314` for the newest supported Python version.
 - `tox` as the final confidence run; it exercises multiple Python versions,
   coverage, and linters.
 
