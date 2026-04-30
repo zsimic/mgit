@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 from dataclasses import dataclass
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import version
 from pathlib import Path
 
 import runez
@@ -22,14 +22,6 @@ class CliInvocation:
     color: str = "auto"
 
 
-def package_version():
-    try:
-        return version("mgit")
-
-    except PackageNotFoundError:
-        return "0+unknown"
-
-
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="mgit",
@@ -39,7 +31,7 @@ def build_parser():
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging.")
     parser.add_argument("--color", choices=("auto", "always", "never"), default="auto", help="Control ANSI color output.")
-    parser.add_argument("--version", action="version", version=f"mgit {package_version()}")
+    parser.add_argument("--version", action="version", version=f"mgit {version('mgit')}")
     parser.add_argument("args", nargs="*", metavar="COMMAND_OR_TARGET")
     return parser
 
