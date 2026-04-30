@@ -84,32 +84,12 @@ def invocation_target(invocation):
     return get_target(invocation.target, **target_preferences(invocation))
 
 
-def default_branch(git):
-    """
-    :param mgit.git.GitDir git: Checkout model
-    :return str|None: Default branch name
-    """
-    branch = git.branches.default_branches.get("origin")
-    if branch:
-        return branch
-
-    origin_branches = git.branches.by_remote.get("origin", set())
-    for candidate in ("main", "master"):
-        if candidate in git.branches.local or candidate in origin_branches:
-            return candidate
-
-    return None
-
-
 def checkout_default_branch(target):
     """
     :param GitCheckout target: Checkout to move to its default branch
     :return GitRunReport: Checkout report
     """
-    branch = default_branch(target.git)
-    if not branch:
-        return GitRunReport(problem="can't determine default branch")
-
+    branch = target.git.default_branch
     if target.git.branches.current == branch:
         return GitRunReport()
 
@@ -191,7 +171,7 @@ def print_checkout_status(target, report=None):
 
 def branch_annotations(target, name):
     annotations = []
-    if name == default_branch(target.git):
+    if name == target.git.default_branch:
         annotations.append(branch_default("[default]"))
 
     if name in target.git.orphan_branches and name not in target.git.special_branches:

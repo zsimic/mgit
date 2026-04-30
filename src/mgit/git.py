@@ -328,21 +328,6 @@ class GitDir:
         cmd.extend(args)
         return cmd, args_represented
 
-    def run_raw_git_command(self, *args) -> GitRunReport:
-        """
-        :param args: Execute git command with provided args, don't capture its output, but let it show through stdout/stderr
-        :return GitRunReport: Report
-        """
-        cmd, _ = self._git_command(args)
-        pretty_args = f"git {' '.join(args)}"
-        print(f"Running: {output.command(pretty_args)}")
-        proc = subprocess.Popen(cmd)  # noqa: S603
-        proc.communicate()
-        if proc.returncode:
-            return GitRunReport(problem=f"git exited with code {proc.returncode}")
-
-        return GitRunReport()
-
     def run_git_command(self, *args) -> tuple[str, GitRunReport]:
         """
         :param args: Execute git command with provided args
@@ -359,19 +344,6 @@ class GitDir:
             return output, GitRunReport(problem=f"git exited with code {proc.returncode}")
 
         return output, GitRunReport(problem=shortened_message(error))
-
-    def fallback_branch(self) -> str:
-        """
-        :return str: Best branch to fallback to if we need to clean or reset
-        """
-        if self.branches.current not in self.orphan_branches:
-            return self.branches.current
-
-        for branch in self.branches.local:
-            if branch not in self.orphan_branches:
-                return branch
-
-        return self.branches.default_branches.get("origin") or "main"
 
     def reset_cached_properties(self):
         """Reset cached properties that may have changed after a fetch or pull"""
@@ -414,11 +386,7 @@ class GitDir:
 
         if self.branches.current == "HEAD" and self.branches.current in self.orphan_branches:
             # Untracked HEAD
-            branch = self.fallback_branch()
-            if not branch:
-                return GitRunReport(problem="can't determine fallback branch")
-
-            output, error = self.run_git_command("checkout", branch)
+            output, error = self.run_git_command("checkout", self.default_branch)
             if error.has_problems:
                 self.reset_cached_properties()
                 return error
@@ -477,6 +445,23 @@ class GitDir:
 
             except OSError:
                 pass
+
+    @runez.cached_property
+    def default_branch(self) -> str:
+        """
+        :param mgit.git.GitDir git: Checkout model
+        :return str|None: Default branch name
+        """
+        branch = self.branches.default_branches.get("origin")
+        if branch:
+            return branch
+
+        origin_branches = self.branches.by_remote.get("origin", set())
+        for candidate in ("main", "master"):
+            if candidate in self.branches.local or candidate in origin_branches:
+                return candidate
+
+        return "main"
 
     @runez.cached_property
     def status(self) -> GitStatus:
@@ -605,11 +590,11 @@ class GitBranches(GitAspect):
     _command = "branch --list --all"
     _remote_prefix = "remotes/"
 
-    def __init__(self, parent, auto_load=True):
+    def __init__(self, parent: GitDir, auto_load=True):
         self.current = ""  # Current local branch
         self.local = set()  # Local branches
         self.by_remote = collections.defaultdict(set)  # Branches by remote (usually origin and optionally upstream)
-        self.default_branches = {}  # Default branch per remote
+        self.default_branches: dict[str, str] = {}  # Default branch per remote
         self.report = GitRunReport()
         super().__init__(parent, auto_load=auto_load)
 
