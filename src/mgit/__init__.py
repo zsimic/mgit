@@ -371,8 +371,9 @@ class ProjectDir:
                 self.checkouts.append(r)
 
         self.checkouts = sorted(self.checkouts, key=lambda x: x.basename)
-        if self.prefs.align and self.projects:
-            self.prefs.name_size = min(36, max(len(c.name) for c in self.checkouts))
+        visible = [c for c in self.checkouts if self.prefs.all or c.git.is_git_checkout]
+        if self.projects and visible:
+            self.prefs.name_size = min(36, max(len(c.name) for c in visible))
 
         else:
             self.prefs.name_size = None

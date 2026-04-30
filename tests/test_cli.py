@@ -43,6 +43,15 @@ def make_checkout(tmp_path):
     return work
 
 
+def make_repo(path):
+    git_init("init", "--initial-branch=main", str(path))
+    git(path, "config", "user.email", "tester@example.com")
+    git(path, "config", "user.name", "Test User")
+    (path / "README.md").write_text(f"{path.name}\n")
+    git(path, "add", "README.md")
+    git(path, "commit", "-m", "initial")
+
+
 def make_stale_tracked_branch(work):
     git(work, "checkout", "-b", "stale")
     git(work, "push", "-u", "origin", "stale")
@@ -93,6 +102,17 @@ def test_parse_rejects_extra_targets():
         parse_cli_args(["fetch", "one", "two"])
 
     assert e.value.code == 2
+
+
+def test_workspace_status_aligns_repo_names(tmp_path, capsys):
+    make_repo(tmp_path / "short")
+    make_repo(tmp_path / "longer-name")
+
+    assert main(["--color", "never", str(tmp_path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "\n      short:" in output
+    assert "\nlonger-name:" in output
 
 
 def test_main_checks_out_default_branch(tmp_path):
