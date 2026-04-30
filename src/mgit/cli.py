@@ -1,5 +1,4 @@
 import argparse
-import contextlib
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 
@@ -8,6 +7,7 @@ import runez
 from mgit import get_target, GitCheckout, print_modified
 from mgit.commands import command_for, command_help, CommandSpec
 from mgit.git import GitRunReport
+from mgit.output import color_context, index_change, untracked_change, worktree_change
 
 
 @dataclass(frozen=True)
@@ -67,16 +67,6 @@ def configure_runtime():
     runez.system.AbortException = SystemExit
     runez.date.DEFAULT_DURATION_SPAN = -2
     runez.log.setup(debug=False, console_format="%(levelname)s %(message)s", locations=None)
-
-
-def color_context(policy):
-    if policy == "never":
-        return runez.ActivateColors(False)
-
-    if policy == "always":
-        return runez.ActivateColors(True)
-
-    return contextlib.nullcontext()
 
 
 def target_preferences(invocation):
@@ -193,8 +183,8 @@ def print_checkout_status(target, report=None):
         if len(target.git.orphan_branches) > 1:
             print("  Orphan branches: %s" % (", ".join(target.git.orphan_branches)))
 
-        print_modified(target.git.status.modified, runez.teal, runez.red)
-        print_modified(target.git.status.untracked, runez.orange)
+        print_modified(target.git.status.modified, index_change, worktree_change)
+        print_modified(target.git.status.untracked, untracked_change)
 
 
 def ensure_single_checkout(target, command):

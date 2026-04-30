@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 
 import runez
 
+from mgit import output
+
 LOG = logging.getLogger(__name__)
 FETCH_AGE_FILES = ("FETCH_HEAD", "HEAD")
 FRESHNESS_THRESHOLD = 12 * runez.date.SECONDS_IN_ONE_HOUR
@@ -102,13 +104,13 @@ class GitRunReport:
         :return str: Textual representation
         """
         result = []
-        n = _add_sorted(result, self._problem, runez.red, 0, max_chars)
+        n = _add_sorted(result, self._problem, output.problem, 0, max_chars)
 
         if progress:
-            n = _add_sorted(result, self._progress, runez.plain, n, max_chars)
+            n = _add_sorted(result, self._progress, output.progress, n, max_chars)
 
         if note:
-            _add_sorted(result, self._note, runez.purple, n, max_chars)
+            _add_sorted(result, self._note, output.note, n, max_chars)
 
         result = separator.join(result)
         if len(result) > max_chars:
@@ -329,7 +331,7 @@ class GitDir:
         """
         cmd, pretty_args = self._git_command(args)
         pretty_args = "git %s" % " ".join(args)
-        print("Running: %s" % runez.bold(pretty_args))
+        print("Running: %s" % output.command(pretty_args))
         proc = subprocess.Popen(cmd)  # noqa: S603
         proc.communicate()
         if proc.returncode:
@@ -706,19 +708,19 @@ class GitStatus(GitAspect):
         """Short freshness overview"""
         result = []
         if self.report._problem:
-            result.append(runez.red(" ".join(self.report._problem)))
+            result.append(output.problem(" ".join(self.report._problem)))
 
         if self.modified:
-            result.append(runez.red(runez.plural(self.modified, "diff")))
+            result.append(output.problem(runez.plural(self.modified, "diff")))
 
         if self.untracked:
-            result.append(runez.orange("%s untracked" % len(self.untracked)))
+            result.append(output.warning("%s untracked" % len(self.untracked)))
 
         if self.report._note:
-            result.append(runez.purple(" ".join(self.report._note)))
+            result.append(output.note(" ".join(self.report._note)))
 
         if not self.report._problem and not self.report._note and self._parent.age is not None:
-            result.append(runez.teal("up to date"))
+            result.append(output.ok("up to date"))
 
         return ", ".join(result)
 

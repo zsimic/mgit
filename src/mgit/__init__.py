@@ -4,6 +4,7 @@ import os
 
 import runez
 
+from mgit import output
 from mgit.git import GitDir, GitRunReport
 
 LOG = logging.getLogger(__name__)
@@ -50,14 +51,14 @@ def get_target(path, **kwargs):
     return ProjectDir(actual_path, prefs=prefs)
 
 
-def print_modified(items, color1, color2=None):
+def print_modified(items, state_style, worktree_style=None):
     for item in items:
         state = item[0:2]
-        if color2:
-            state = f"{color1(item[0])}{color2(item[1])}"
+        if worktree_style:
+            state = f"{state_style(item[0])}{worktree_style(item[1])}"
 
-        elif color1:
-            state = color1(state)
+        elif state_style:
+            state = state_style(state)
 
         print(f"  {state} {item[3:]}")
 
@@ -237,7 +238,7 @@ class GitCheckout:
         result = "%s:" % self.aligned_name
 
         if self.git.is_git_checkout:
-            branch = runez.bold(self.git.branches.shortened_current_branch)
+            branch = output.branch(self.git.branches.shortened_current_branch)
             n = len(self.git.branches.local)
             if n > 1:
                 branch += " +%s" % (n - 1)
@@ -295,8 +296,8 @@ class GitCheckout:
             if len(self.git.orphan_branches) > 1:
                 print("  Orphan branches: %s" % (", ".join(self.git.orphan_branches)))
 
-            print_modified(self.git.status.modified, runez.teal, runez.red)
-            print_modified(self.git.status.untracked, runez.orange)
+            print_modified(self.git.status.modified, output.index_change, output.worktree_change)
+            print_modified(self.git.status.untracked, output.untracked_change)
 
 
 class ProjectDir:
@@ -378,19 +379,20 @@ class ProjectDir:
 
     @runez.cached_property
     def header(self):
-        result = "%s:" % runez.purple(runez.short(self.path))
+        result = "%s:" % output.workspace_path(runez.short(self.path))
 
         if not self.projects:
-            return "{} {}".format(result, runez.orange("no git folders"))
+            return "{} {}".format(result, output.warning("no git folders"))
 
         if self.predominant:
-            result += runez.bold(f" {len(self.projects[self.predominant])} {self.predominant}")
+            result += output.workspace_primary(f" {len(self.projects[self.predominant])} {self.predominant}")
 
         else:
-            result += runez.orange(" no predominant project")
+            result += output.warning(" no predominant project")
 
         if self.additional:
-            result += " (%s)" % runez.purple(", ".join(f"+{len(self.projects[project])} {project}" for project in self.additional))
+            details = ", ".join(f"+{len(self.projects[project])} {project}" for project in self.additional)
+            result += " (%s)" % output.workspace_detail(details)
 
         return result
 
