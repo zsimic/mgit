@@ -292,11 +292,12 @@ class GitDir:
             orphan_branches.remove(self.branches.current)
             result.add(note=f"current branch '{self.branches.current}' is orphaned")
 
-        if len(orphan_branches) == 1:
-            result.add(note=f"local branch '{orphan_branches[0]}' can be pruned")
+        cleanable = sorted(self.local_cleanable_branches)
+        if len(cleanable) == 1:
+            result.add(note=f"local branch '{cleanable[0]}' can be pruned")
 
-        elif orphan_branches:
-            result.add(note=f"{runez.plural(orphan_branches, 'local branch')} can be pruned")
+        elif cleanable:
+            result.add(note=f"{runez.plural(cleanable, 'local branch')} can be pruned")
 
         result.add(self.branches.report)
 
@@ -505,19 +506,109 @@ class GitDir:
         result.add("master")
         return result
 
+    def _default_ref_for_remote(self, remote: str) -> str | None:
+        """
+        :param str remote: Remote name
+        :return str|None: Remote ref for the remote's default branch, if known locally
+        """
+        remote_branches = self.branches.by_remote.get(remote)
+        if not remote_branches:
+            return None
+
+        candidates = [self.branches.default_branches.get(remote), self.default_branch, "main", "master"]
+        for branch in candidates:
+            if branch and branch in remote_branches:
+                return f"{remote}/{branch}"
+
+        return None
+
+    @runez.cached_property
+    def cleanable_base_ref(self) -> str | None:
+        """
+        :return str|None: Ref that cleanup candidates must already be merged into
+        """
+        if "origin" in self.config.remotes:
+            remote_ref = self._default_ref_for_remote("origin")
+            if remote_ref:
+                return remote_ref
+
+        if self.default_branch in self.branches.local:
+            return self.default_branch
+
+        return None
+
+    def is_ancestor(self, ref: str, target_ref: str) -> bool:
+        """
+        :param str ref: Candidate ref
+        :param str target_ref: Ref that should contain the candidate
+        :return bool: True if 'ref' is an ancestor of 'target_ref'
+        """
+        if not ref or not target_ref:
+            return False
+
+        _, error = self.run_git_command("merge-base", "--is-ancestor", ref, target_ref)
+        return not error.has_problems
+
+    def tree_id(self, ref: str) -> str | None:
+        """
+        :param str ref: Ref to inspect
+        :return str|None: Tree object id for 'ref'
+        """
+        output, error = self.run_git_command("rev-parse", f"{ref}^{{tree}}")
+        if error.has_problems:
+            return None
+
+        return output.strip() or None
+
+    def merge_is_noop(self, ref: str, target_ref: str) -> bool:
+        """
+        :param str ref: Candidate ref
+        :param str target_ref: Ref that should already contain the candidate content
+        :return bool: True if merging 'ref' into 'target_ref' would leave 'target_ref' unchanged
+        """
+        target_tree = self.tree_id(target_ref)
+        if not target_tree:
+            return False
+
+        output, error = self.run_git_command("merge-tree", "--write-tree", "--no-messages", target_ref, ref)
+        if error.has_problems:
+            return False
+
+        trees = [line.strip() for line in output.splitlines() if line.strip()]
+        return len(trees) == 1 and trees[0] == target_tree
+
+    def is_cleanable_merged(self, ref: str, target_ref: str) -> bool:
+        """
+        :param str ref: Candidate ref
+        :param str target_ref: Ref that should already contain the candidate
+        :return bool: True if 'ref' is safely contained in 'target_ref'
+        """
+        if not ref or not target_ref:
+            return False
+
+        return self.is_ancestor(ref, target_ref) or self.merge_is_noop(ref, target_ref)
+
+    def is_cleanable_local_branch(self, name: str, include_current=False) -> bool:
+        """
+        :param str name: Local branch name
+        :param bool include_current: If True, allow checking the current branch
+        :return bool: True if local branch is safe to clean
+        """
+        base_ref = self.cleanable_base_ref
+        return bool(
+            base_ref
+            and name
+            and name not in self.special_branches
+            and (include_current or name != self.branches.current)
+            and self.is_cleanable_merged(name, base_ref)
+        )
+
     @runez.cached_property
     def local_cleanable_branches(self) -> set[str]:
         """
         :return set: Local branches that can be cleaned
         """
-        result = {name for name in self.orphan_branches if name not in self.special_branches}
-        for branch in self.remote_cleanable_branches:
-            remote, _, name = branch.partition("/")
-            tracking = self.config.tracking_remote.get(name)
-            if tracking == remote:
-                result.add(name)
-
-        return result
+        return {name for name in self.branches.local if self.is_cleanable_local_branch(name)}
 
     @runez.cached_property
     def remote_cleanable_branches(self) -> set[str]:
@@ -525,20 +616,21 @@ class GitDir:
         :return set: Remote branches that can be cleaned
         """
         result = set()
-        aspect = GitBranches(self, auto_load=False)
-        aspect._command = "branch --list --remote --merged"
-        aspect._remote_prefix = ""
-        default = self.branches.default_branches.get("origin")
-        if default:
-            aspect._command += f" {default}"
-
-        aspect.reload()
-        for remote, branches in aspect.by_remote.items():
-            url = self.config.remotes.get(remote)
-            if not url or url.protocol != "ssh":
+        for remote, branches in self.branches.by_remote.items():
+            if remote not in self.config.remotes:
                 continue
 
-            result.update([f"{remote}/{branch}" for branch in branches if branch not in self.special_branches])
+            default_ref = self._default_ref_for_remote(remote)
+            if not default_ref:
+                continue
+
+            for branch in branches:
+                if branch in self.special_branches:
+                    continue
+
+                ref = f"{remote}/{branch}"
+                if ref != default_ref and self.is_cleanable_merged(ref, default_ref):
+                    result.add(ref)
 
         return result
 

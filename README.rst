@@ -115,8 +115,11 @@ Commands that act are explicit:
 - ``mgit f`` updates local remote refs with ``git fetch --all --prune``.
 - ``mgit p`` pulls with rebase only when the checkout passes safety checks.
 - ``mgit g`` is local-only: it does not delete remote branches. It fetches,
-  moves back to the default branch, pulls safely, and deletes only local
-  branches whose tracked remote branch is gone.
+  verifies that the current branch can be cleaned before switching branches,
+  pulls safely, and deletes only local branches whose tracked remote branch is
+  gone and whose content is already on the default branch. When already on the
+  default branch, it says so instead of treating that branch as cleanable. Use
+  ``mgit m`` when you only want to switch to the default branch.
 
 Remote branch deletion and reset-style cleanup are intentionally not part of
 the first v2 command set.

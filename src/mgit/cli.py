@@ -107,10 +107,7 @@ def stale_tracked_local_branches(git):
     :return list[str]: Local branches whose tracked remote branch is gone
     """
     result = []
-    for branch in sorted(git.branches.local):
-        if branch in git.special_branches:
-            continue
-
+    for branch in sorted(git.local_cleanable_branches):
         remote = git.config.tracking_remote.get(branch)
         if remote and branch not in git.branches.by_remote.get(remote, set()):
             result.append(branch)
@@ -133,7 +130,12 @@ def delete_stale_local_branches(target):
             report.add(problem=f"can't delete current branch '{branch}'")
             continue
 
-        _, error = target.git.run_git_command("branch", "--delete", branch)
+        args = ["branch", "--delete", branch]
+        base_ref = target.git.cleanable_base_ref
+        if base_ref and not target.git.is_ancestor(branch, base_ref):
+            args.insert(2, "--force")
+
+        _, error = target.git.run_git_command(*args)
         if error.has_problems:
             report.add(problem=f"couldn't delete '{branch}': {error.representation()}")
 
@@ -153,6 +155,17 @@ def pending_changes_report(target):
         report.add(note=f"{len(target.git.status.untracked)} untracked")
 
     return report
+
+
+def current_branch_cleanable_report(target):
+    current = target.git.branches.current
+    if current == target.git.default_branch:
+        return GitRunReport(note=f"already on {target.git.default_branch} branch")
+
+    if target.git.is_cleanable_local_branch(current, include_current=True):
+        return GitRunReport()
+
+    return GitRunReport(problem="<can't groom").add(problem="current branch can't be cleaned")
 
 
 def has_pending_changes(target):
@@ -249,6 +262,13 @@ def handle_groom(target, invocation):
     if has_pending_changes(target):
         print_checkout_status(target, pending_changes_report(target))
         return 1
+
+    current_report = current_branch_cleanable_report(target)
+    if current_report.has_problems:
+        print_checkout_status(target, current_report)
+        return 1
+
+    report.add(current_report)
 
     checkout_report = checkout_default_branch(target)
     if checkout_report.has_problems:

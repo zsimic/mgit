@@ -7,6 +7,7 @@ import pytest
 
 from mgit.cli import parse_cli_args
 from mgit.commands import command_for, COMMANDS
+from mgit.git import GitDir
 
 GIT = shutil.which("git") or "git"
 
@@ -62,6 +63,34 @@ def make_stale_tracked_branch(work):
     git(work, "checkout", "main")
     git(work, "push", "origin", "--delete", "stale")
     git(work, "checkout", "stale")
+
+
+def commit_file(work, name, text, message):
+    (work / name).write_text(text)
+    git(work, "add", name)
+    git(work, "commit", "-m", message)
+
+
+def make_unmerged_stale_tracked_branch(work):
+    git(work, "checkout", "-b", "unmerged")
+    commit_file(work, "unmerged.txt", "still in progress\n", "unmerged work")
+    git(work, "push", "-u", "origin", "unmerged")
+    git(work, "checkout", "main")
+    git(work, "push", "origin", "--delete", "unmerged")
+    git(work, "checkout", "unmerged")
+
+
+def make_squashed_stale_tracked_branch(work):
+    git(work, "checkout", "-b", "squashed")
+    commit_file(work, "one.txt", "one\n", "one")
+    commit_file(work, "two.txt", "two\n", "two")
+    git(work, "push", "-u", "origin", "squashed")
+    git(work, "checkout", "main")
+    git(work, "merge", "--squash", "squashed")
+    git(work, "commit", "-m", "squash squashed")
+    git(work, "push", "origin", "main")
+    git(work, "push", "origin", "--delete", "squashed")
+    git(work, "checkout", "squashed")
 
 
 def test_command_registry_core_slice():
@@ -209,6 +238,41 @@ def test_groom_deletes_stale_tracked_branch(cli):
     assert not git(work, "branch", "--list", "stale")
 
 
+def test_groom_preserves_unmerged_stale_tracked_branch(cli):
+    work = make_checkout(Path("checkout"))
+    make_unmerged_stale_tracked_branch(work)
+
+    cli.run("g checkout/work")
+
+    assert cli.failed
+    assert cli.exit_code == 1
+    assert "current branch can't be cleaned" in cli.logged
+    assert git(work, "branch", "--show-current") == "unmerged"
+    assert git(work, "branch", "--list", "unmerged")
+
+
+def test_groom_deletes_squashed_stale_tracked_branch(cli):
+    work = make_checkout(Path("checkout"))
+    make_squashed_stale_tracked_branch(work)
+
+    cli.run("g checkout/work")
+
+    assert cli.succeeded
+    assert "deleted squashed" in cli.logged
+    assert git(work, "branch", "--show-current") == "main"
+    assert not git(work, "branch", "--list", "squashed")
+
+
+def test_groom_reports_already_on_default_branch(cli):
+    work = make_checkout(Path("checkout"))
+
+    cli.run("g checkout/work")
+
+    assert cli.succeeded
+    assert "already on main branch" in cli.logged
+    assert git(work, "branch", "--show-current") == "main"
+
+
 def test_groom_refuses_pending_changes(cli):
     work = make_checkout(Path("checkout"))
     make_stale_tracked_branch(work)
@@ -221,3 +285,43 @@ def test_groom_refuses_pending_changes(cli):
     assert "pending changes" in cli.logged
     assert git(work, "branch", "--show-current") == "stale"
     assert git(work, "branch", "--list", "stale")
+
+
+def test_cleanable_branches_require_default_branch_ancestry(tmp_path):
+    work = make_checkout(tmp_path / "checkout")
+    git(work, "checkout", "-b", "done")
+    commit_file(work, "done.txt", "done\n", "done work")
+    git(work, "push", "-u", "origin", "done")
+    git(work, "checkout", "main")
+    git(work, "merge", "--no-ff", "done", "-m", "merge done")
+    git(work, "push", "origin", "main")
+    git(work, "checkout", "-b", "v2gpt")
+    commit_file(work, "v2gpt.txt", "still in progress\n", "v2gpt work")
+    git(work, "push", "-u", "origin", "v2gpt")
+
+    git_dir = GitDir(str(work))
+
+    assert git_dir.cleanable_base_ref == "origin/main"
+    assert git_dir.local_cleanable_branches == {"done"}
+    assert "origin/done" in git_dir.remote_cleanable_branches
+    assert "origin/v2gpt" not in git_dir.remote_cleanable_branches
+    assert "origin/main" not in git_dir.remote_cleanable_branches
+
+
+def test_cleanable_branches_detect_squashed_content(tmp_path):
+    work = make_checkout(tmp_path / "checkout")
+    git(work, "checkout", "-b", "squashed")
+    commit_file(work, "one.txt", "one\n", "one")
+    commit_file(work, "two.txt", "two\n", "two")
+    git(work, "push", "-u", "origin", "squashed")
+    git(work, "checkout", "main")
+    git(work, "merge", "--squash", "squashed")
+    git(work, "commit", "-m", "squash squashed")
+    git(work, "push", "origin", "main")
+
+    git_dir = GitDir(str(work))
+
+    assert not git_dir.is_ancestor("squashed", "origin/main")
+    assert git_dir.merge_is_noop("squashed", "origin/main")
+    assert git_dir.local_cleanable_branches == {"squashed"}
+    assert "origin/squashed" in git_dir.remote_cleanable_branches

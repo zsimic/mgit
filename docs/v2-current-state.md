@@ -97,8 +97,13 @@ still live in `cli.py` and `__init__.py`.
 - `GitAspect` is a base class for parsed git-command output.
 - `GitBranches`, `GitConfig`, and `GitStatus` parse branch, config, and status
   output.
-- Cleanable branches are derived from branch/config state and merged remote
-  branches.
+- Cleanable local and remote branches are proven with
+  `git merge-base --is-ancestor` against the relevant default branch ref, or by
+  using `git merge-tree --write-tree` to prove that merging the branch into the
+  default branch would leave the default branch tree unchanged. This catches
+  squash/content-equivalent merges without trusting branch names or current
+  checkout state. Local squash-cleanable branches use force deletion only after
+  that no-op merge proof.
 
 ## Settled Pieces
 
@@ -116,7 +121,9 @@ still live in `cli.py` and `__init__.py`.
   checkout if the current directory is inside one.
 - `main` is treated as a user-facing command for "default branch", not a
   literal branch name.
-- `groom` is local-only and currently single-repo only.
+- `groom` is local-only and currently single-repo only. When run from a
+  non-default branch, it refuses to switch branches unless the current branch is
+  also cleanable.
 
 ## Remaining Work
 

@@ -163,12 +163,20 @@ Alias policy:
 - Local-only cleanup command. It must not delete remote branches.
 - Fetches first with prune so branch status is current.
 - Refuses to switch or delete when the current worktree has pending changes.
+- Refuses to switch away from a non-default branch unless the current branch is
+  itself cleanable. Use `main`/`m` for an explicit branch switch.
+- Reports when it is already on the default branch rather than implying the
+  default branch is a cleanup candidate.
 - Resolves the default branch using the same `main` logic.
 - Checks out the default branch when cleanup should proceed, then deletes only
   branches proven stale/cleanable.
 - Pulls the default branch safely, using the same guardrails as `pull`.
-- Deletes local branches whose tracked remote is gone, while never deleting
-  default branches, `HEAD`, `main`, or `master`.
+- Deletes local branches whose tracked remote is gone and whose content is
+  already on the default branch, while never deleting default branches, `HEAD`,
+  `main`, or `master`.
+- Uses normal `git branch --delete` for history-merged branches. For
+  squash/content-equivalent branches, a local force delete is allowed only after
+  the no-op merge proof has passed.
 - Leaves non-tracking local branches alone in the first implementation.
 - Reports what it did and what it skipped.
 - Current implementation is single-repo only. Workspace grooming can come after

@@ -56,6 +56,9 @@ Suggested module split:
 - [x] Keep output shape independent of `-v/--verbose`.
 - [x] Defer `--short`/`--long` unless they become clearly useful.
 - [x] Wire `-v/--verbose` to logging verbosity.
+- [x] Require cleanable branches to be merged or content-equivalent to the
+  default branch.
+- [x] Refuse `groom` from non-default branches that are not cleanable.
 - [x] Add CLI tests for default command, aliases, explicit commands, invalid
   usage, and target paths.
 
