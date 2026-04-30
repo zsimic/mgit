@@ -17,6 +17,14 @@ def branch(text):
     return runez.bold(text)
 
 
+def branch_default(text):
+    return runez.teal(text)
+
+
+def branch_orphaned(text):
+    return runez.orange(text)
+
+
 def command(text):
     return runez.bold(text)
 

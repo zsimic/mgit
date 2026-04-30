@@ -23,6 +23,7 @@ COMMANDS = (
     CommandSpec("fetch", ("f",), "Fetch remotes, then show status.", "both", mutates_local=True, handler="fetch"),
     CommandSpec("pull", ("p",), "Pull with rebase when the worktree is safe.", "both", mutates_local=True, handler="pull"),
     CommandSpec("main", ("m",), "Checkout the default branch.", "single", mutates_local=True, handler="main"),
+    CommandSpec("branches", ("b",), "Show local branches.", "both", handler="branches"),
     CommandSpec(
         "groom",
         ("g",),

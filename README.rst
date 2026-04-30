@@ -57,6 +57,7 @@ The short aliases are the intended interface:
 - ``fetch`` / ``f``: refresh remote refs, then report status.
 - ``pull`` / ``p``: pull with rebase when the worktree is clean.
 - ``main`` / ``m``: checkout the default branch, even if it is ``master``.
+- ``branches`` / ``b``: list local branches with small annotations.
 - ``groom`` / ``g``: local-only cleanup workflow for stale local branches.
 
 You can pass a target path to most commands::

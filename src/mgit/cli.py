@@ -7,7 +7,7 @@ import runez
 from mgit import get_target, GitCheckout, print_modified
 from mgit.commands import command_for, command_help, CommandSpec
 from mgit.git import GitRunReport
-from mgit.output import color_context, index_change, untracked_change, worktree_change
+from mgit.output import branch_default, branch_orphaned, color_context, index_change, untracked_change, worktree_change
 
 
 @dataclass(frozen=True)
@@ -187,6 +187,41 @@ def print_checkout_status(target, report=None):
         print_modified(target.git.status.untracked, untracked_change)
 
 
+def branch_annotations(target, name):
+    annotations = []
+    if name == default_branch(target.git):
+        annotations.append(branch_default("[default]"))
+
+    if name in target.git.orphan_branches and name not in target.git.special_branches:
+        annotations.append(branch_orphaned("[orphaned]"))
+
+    return annotations
+
+
+def branch_lines(target):
+    branches = sorted(target.git.branches.local)
+    if not branches:
+        return ["  no local branches"]
+
+    width = max(len(name) for name in branches)
+    lines = []
+    for name in branches:
+        marker = "*" if name == target.git.branches.current else " "
+        line = f"{marker} {name:<{width}}"
+        annotations = branch_annotations(target, name)
+        if annotations:
+            line += "  %s" % " ".join(annotations)
+
+        lines.append(line)
+
+    return lines
+
+
+def print_branch_report(target, indent=""):
+    for line in branch_lines(target):
+        print(f"{indent}{line}")
+
+
 def ensure_single_checkout(target, command):
     if not isinstance(target, GitCheckout):
         runez.abort(f"{command} only supports one git checkout", code=2)
@@ -196,6 +231,19 @@ def ensure_single_checkout(target, command):
 
 def handle_status(target, _invocation):
     target.print_status()
+    return 0
+
+
+def handle_branches(target, _invocation):
+    if isinstance(target, GitCheckout):
+        print_branch_report(target)
+        return 0
+
+    for checkout in target.checkouts:
+        if target.prefs.all or checkout.git.is_git_checkout:
+            print(f"{checkout.name}:")
+            print_branch_report(checkout, indent="  ")
+
     return 0
 
 
@@ -247,6 +295,7 @@ COMMAND_HANDLERS = {
     "status": handle_status,
     "fetch": handle_status,
     "pull": handle_status,
+    "branches": handle_branches,
     "main": handle_main,
     "groom": handle_groom,
 }

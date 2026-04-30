@@ -48,7 +48,7 @@ Suggested module split:
 - [x] Implement `pull` and `p`.
 - [x] Implement single-repo `groom` and `g` as the priority cleanup workflow.
 - [x] Implement `main` and `m`.
-- [ ] Implement `branches` and `b`.
+- [x] Implement `branches` and `b`.
 - [x] Support `-v/--verbose`.
 - [ ] Keep one compact default output style; defer `--short` unless it becomes
   clearly useful.

@@ -145,7 +145,10 @@ Alias policy:
 
 - Read-only.
 - For a single repo, equivalent to a compact branch report.
-- For a workspace, one line per repo with current branch and local branch count.
+- Shows git-style local branches, preserving the `*` marker for the current
+  branch.
+- Annotates known facts such as `[default]` and `[orphaned]`.
+- For a workspace, groups the same compact branch report under each checkout.
 
 `groom`:
 

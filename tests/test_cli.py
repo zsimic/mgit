@@ -70,6 +70,7 @@ def test_command_registry_core_slice():
         "fetch": ("f",),
         "pull": ("p",),
         "main": ("m",),
+        "branches": ("b",),
         "groom": ("g",),
     }
     assert command_for("g").name == "groom"
@@ -87,6 +88,8 @@ def test_command_registry_core_slice():
         (["f"], "fetch", None),
         (["pull"], "pull", None),
         (["p"], "pull", None),
+        (["branches"], "branches", None),
+        (["b"], "branches", None),
         (["groom"], "groom", None),
         (["g"], "groom", None),
         (["main"], "main", None),
@@ -122,6 +125,36 @@ def test_workspace_status_alignment(cli):
     cli.run("my-workspace")
     assert cli.succeeded
     assert cli.logged.stdout.contents() == expected
+
+
+def test_branches_single_repo(cli):
+    make_repo(Path("repo"))
+    git(Path("repo"), "checkout", "-b", "feature")
+
+    cli.run("b repo")
+
+    assert cli.succeeded
+    assert cli.logged.stdout.contents() == dedent("""\
+        * feature  [orphaned]
+          main     [default]
+    """)
+
+
+def test_branches_workspace(cli):
+    make_repo(Path("workspace/one"))
+    make_repo(Path("workspace/two"))
+    git(Path("workspace/two"), "checkout", "-b", "topic")
+
+    cli.run("branches workspace")
+
+    assert cli.succeeded
+    assert cli.logged.stdout.contents() == dedent("""\
+        one:
+          * main  [default]
+        two:
+            main   [default]
+          * topic  [orphaned]
+    """)
 
 
 def test_main_checks_out_default_branch(cli):
