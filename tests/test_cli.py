@@ -1,9 +1,11 @@
 import shutil
 import subprocess
+from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
-from mgit.cli import main, parse_cli_args
+from mgit.cli import parse_cli_args
 from mgit.commands import command_for, COMMANDS
 
 GIT = shutil.which("git") or "git"
@@ -23,10 +25,11 @@ def git_init(*args):
     subprocess.run([GIT, *args], check=True, capture_output=True, text=True)  # noqa: S603
 
 
-def make_checkout(tmp_path):
-    remote = tmp_path / "remote.git"
-    seed = tmp_path / "seed"
-    work = tmp_path / "work"
+def make_checkout(base):
+    base.mkdir(parents=True, exist_ok=True)
+    remote = base / "remote.git"
+    seed = base / "seed"
+    work = base / "work"
 
     git_init("init", "--bare", "--initial-branch=main", str(remote))
     git_init("init", "--initial-branch=main", str(seed))
@@ -35,9 +38,10 @@ def make_checkout(tmp_path):
     (seed / "README.md").write_text("hello\n")
     git(seed, "add", "README.md")
     git(seed, "commit", "-m", "initial")
-    git(seed, "remote", "add", "origin", str(remote))
+    remote_url = str(remote.resolve())
+    git(seed, "remote", "add", "origin", remote_url)
     git(seed, "push", "-u", "origin", "main")
-    git_init("clone", str(remote), str(work))
+    git_init("clone", remote_url, str(work))
     git(work, "config", "user.email", "tester@example.com")
     git(work, "config", "user.name", "Test User")
     return work
@@ -97,52 +101,60 @@ def test_parse_core_commands(argv, command, target):
     assert invocation.target == target
 
 
-def test_parse_rejects_extra_targets():
-    with pytest.raises(SystemExit) as e:
-        parse_cli_args(["fetch", "one", "two"])
+def test_parse_rejects_extra_targets(cli):
+    cli.run("fetch one two")
 
-    assert e.value.code == 2
-
-
-def test_workspace_status_aligns_repo_names(tmp_path, capsys):
-    make_repo(tmp_path / "short")
-    make_repo(tmp_path / "longer-name")
-
-    assert main(["--color", "never", str(tmp_path)]) == 0
-
-    output = capsys.readouterr().out
-    assert "\n      short:" in output
-    assert "\nlonger-name:" in output
+    assert cli.failed
+    assert cli.exit_code == 2
+    assert "fetch accepts at most one target" in cli.logged
 
 
-def test_main_checks_out_default_branch(tmp_path):
-    work = make_checkout(tmp_path)
+def test_workspace_status_alignment(cli):
+    make_repo(Path("my-workspace/short"))
+    make_repo(Path("my-workspace/longer-name"))
+
+    expected = dedent("""\
+        my-workspace: 2 unknown/unknown
+        longer-name: [main] up to date  no remotes; current branch 'main' is orphaned
+              short: [main] up to date  no remotes; current branch 'main' is orphaned
+    """)
+
+    cli.run("my-workspace")
+    assert cli.succeeded
+    assert cli.logged.stdout.contents() == expected
+
+
+def test_main_checks_out_default_branch(cli):
+    work = make_checkout(Path("checkout"))
     git(work, "checkout", "-b", "feature")
 
-    assert main(["--color", "never", "m", str(work)]) == 0
+    cli.run("m checkout/work")
+
+    assert cli.succeeded
     assert git(work, "branch", "--show-current") == "main"
 
 
-def test_groom_deletes_stale_tracked_branch(tmp_path, capsys):
-    work = make_checkout(tmp_path)
+def test_groom_deletes_stale_tracked_branch(cli):
+    work = make_checkout(Path("checkout"))
     make_stale_tracked_branch(work)
 
-    assert main(["--color", "never", "g", str(work)]) == 0
+    cli.run("g checkout/work")
 
-    output = capsys.readouterr().out
-    assert "deleted stale" in output
+    assert cli.succeeded
+    assert "deleted stale" in cli.logged
     assert git(work, "branch", "--show-current") == "main"
     assert not git(work, "branch", "--list", "stale")
 
 
-def test_groom_refuses_pending_changes(tmp_path, capsys):
-    work = make_checkout(tmp_path)
+def test_groom_refuses_pending_changes(cli):
+    work = make_checkout(Path("checkout"))
     make_stale_tracked_branch(work)
     (work / "scratch.txt").write_text("pending\n")
 
-    assert main(["--color", "never", "groom", str(work)]) == 1
+    cli.run("groom checkout/work")
 
-    output = capsys.readouterr().out
-    assert "pending changes" in output
+    assert cli.failed
+    assert cli.exit_code == 1
+    assert "pending changes" in cli.logged
     assert git(work, "branch", "--show-current") == "stale"
     assert git(work, "branch", "--list", "stale")
