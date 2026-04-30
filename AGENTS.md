@@ -27,11 +27,17 @@ Important files:
 
 Use these from the repo root:
 
-- `uv run pytest -vv`
-- `uv run pytest -vv --cov=src tests`
-- `tox -e style`
-- `tox -e py314`
-- `tox`
+- `.venv/bin/pytest -q` for fast iteration.
+- `.venv/bin/pytest -vv` when you want the full test names.
+- `.venv/bin/pytest -vv --cov=src tests` for local coverage checks.
+- `ruff check` and `ruff format --diff` directly; `ruff` is on `PATH`.
+- `tox -e style` for the packaged style environment.
+- `tox -e py314` for the primary tox test environment.
+- `tox` as the final confidence run; it exercises multiple Python versions,
+  coverage, and linters.
+
+`uv run pytest ...` also works when the synced environment is desired, but the
+local `.venv/bin/pytest` path is usually faster while iterating.
 
 The repo already uses `ruff`, `pyright`, `tox`, and `setuptools-scm`.
 

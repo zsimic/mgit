@@ -5,7 +5,7 @@ accurate as work proceeds.
 
 ## Principles
 
-- Preserve useful v1 behavior before changing its shape.
+- Preserve useful behavior while replacing the v1 flag-oriented CLI.
 - Make the command model explicit.
 - Keep git command execution easy to test.
 - Separate parsing, state modeling, command handlers, and rendering.
@@ -26,8 +26,7 @@ accurate as work proceeds.
 ## Phase 1: Architecture Skeleton
 
 - [x] Introduce a command registry with command metadata.
-- [x] Introduce argparse parsing while keeping current behavior reachable during
-  transition.
+- [x] Introduce argparse parsing for the v2 command shape.
 - [ ] Move target discovery into a dedicated module.
 - [ ] Enforce depth-1 workspace scanning.
 - [ ] Move output/color/report rendering into a dedicated module.
@@ -93,8 +92,8 @@ The first coding slice should serve the two common commands first:
 
 1. Add parser and command-registry tests for `mgit`, `mgit status`, `mgit s`,
    `mgit fetch`, `mgit f`, `mgit pull`, `mgit p`, `mgit groom`, and `mgit g`.
-2. Implement an argparse entry point that maps those commands onto existing v1
-   behavior.
+2. Implement an argparse entry point that maps those commands onto existing
+   git/status behavior.
 3. Preserve the inspect-then-act update loop: `mgit f` reports remote state, and
    `mgit p` pulls only when explicitly requested.
 4. Add the single-repo `g` workflow: fetch/prune, resolve default branch,
@@ -102,15 +101,14 @@ The first coding slice should serve the two common commands first:
    and delete stale local branches.
 5. Add `mgit main`/`m` and `-v/--verbose` around that core.
 6. Defer `--debug` and `--short`.
-7. Keep legacy flags temporarily if desired, but mark them as compatibility
-   paths rather than the v2 design center.
+7. Do not carry legacy v1 action flags into v2; use commands such as `mgit f`
+   and `mgit p` instead.
 
 This makes the most common loops work first: `mgit`, then `mgit f`/`mgit p`
 for ordinary updates, and `mgit g` after the PR is merged.
 
 ## Open Decisions
 
-- Should v2 keep any legacy flags, or make a clean break?
 - Should mutating commands ask for confirmation by default?
 - Should workspace `pull` continue across failures or offer fail-fast?
 - Should output alignment stay fixed-width text, or move to a small table

@@ -80,8 +80,6 @@ def test_command_registry_core_slice():
         (["m"], "main", None),
         (["status", "repo"], "status", "repo"),
         (["repo"], "status", "repo"),
-        (["-f", "repo"], "fetch", "repo"),
-        (["-p", "repo"], "pull", "repo"),
     ],
 )
 def test_parse_core_commands(argv, command, target):

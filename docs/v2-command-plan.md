@@ -29,6 +29,9 @@ Global options:
 - `--version`
 - `--help`
 
+The v1 action flags are intentionally not part of v2. For example, use
+`mgit f`, not `mgit -f`; use `mgit p`, not `mgit -p`.
+
 Not planned for the first iteration:
 
 - `--debug`
@@ -60,8 +63,8 @@ Target handling:
   the target is that checkout.
 - If no target is supplied and the current directory is not inside a checkout,
   the target is the current directory as a workspace.
-- During the transition, a single unknown token is treated as a `status` target
-  so `mgit path` keeps working. Extra positional tokens are invalid usage.
+- A single unknown token is treated as a `status` target, so `mgit path`
+  inspects that path. Extra positional tokens are invalid usage.
 - A workspace scan is depth 1 only: inspect direct children matching
   `<workspace>/*/.git`. Nested descendants are out of scope for now.
 
