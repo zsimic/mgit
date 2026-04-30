@@ -718,11 +718,7 @@ class GitStatus(GitAspect):
             result.append(runez.purple(" ".join(self.report._note)))
 
         if not self.report._problem and not self.report._note and self._parent.age is not None:
-            message = "up to date"
-            if self._parent.age > FRESHNESS_THRESHOLD:
-                message += "*"
-
-            result.append(runez.teal(message))
+            result.append(runez.teal("up to date"))
 
         return ", ".join(result)
 
