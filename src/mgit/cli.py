@@ -12,9 +12,9 @@ from typing import ClassVar
 
 import runez
 
-from mgit import find_actual_path, GitCheckout, print_modified, ProjectDir
+from mgit import GitCheckout, ProjectDir
 from mgit.git import GitRunReport
-from mgit.output import branch_current, branch_default, branch_orphaned, color_context, index_change, untracked_change, worktree_change
+from mgit.output import color_context
 
 FETCH_COOLDOWN_SECONDS = 30
 
@@ -55,17 +55,6 @@ class CliCommand:
         """Add command-specific arguments."""
 
     @classmethod
-    def parser(cls) -> argparse.ArgumentParser:
-        parser = argparse.ArgumentParser(prog=f"mgit {cls.command_name()}", description=cls.summary())
-        cls.add_arguments(parser)
-        return parser
-
-    @classmethod
-    def parse(cls, args: list[str]) -> CliCommand:
-        namespace = cls.parser().parse_args(args)
-        return cls.from_namespace(namespace)
-
-    @classmethod
     def from_namespace(cls, _namespace: argparse.Namespace) -> CliCommand:
         return cls()
 
@@ -74,7 +63,7 @@ class CliCommand:
 
 
 @dataclass(frozen=True)
-class FolderCommand(CliCommand):
+class FolderTargetCommand(CliCommand):
     folder: Path = Path(".")
 
     @classmethod
@@ -82,18 +71,35 @@ class FolderCommand(CliCommand):
         parser.add_argument("folder", nargs="?", type=Path, default=cls.folder)
 
     @classmethod
-    def from_namespace(cls, namespace: argparse.Namespace) -> FolderCommand:
+    def from_namespace(cls, namespace: argparse.Namespace) -> FolderTargetCommand:
         return cls(folder=namespace.folder)
 
     def actual_folder(self) -> Path:
-        folder = find_actual_path(self.folder)
+        folder = self.folder.expanduser().absolute()
+        current = Path.cwd()
+        if folder == current:
+            for candidate in (current, *current.parents):
+                if (candidate / ".git").is_dir():
+                    folder = candidate
+                    break
+
         if not folder.is_dir():
             runez.abort(f"No folder '{runez.short(folder)}'")
 
         return folder
 
+
+@dataclass(frozen=True)
+class ProjectCommand(FolderTargetCommand):
+    """Command operating on a project directory or single checkout."""
+
     def get_project_dir(self) -> ProjectDir:
         return ProjectDir(self.actual_folder())
+
+
+@dataclass(frozen=True)
+class SingleCheckoutCommand(FolderTargetCommand):
+    """Command operating on one git checkout."""
 
     def get_git_checkout(self) -> GitCheckout:
         folder = self.actual_folder()
@@ -121,19 +127,19 @@ def cli_command(command: type[CliCommand]) -> type[CliCommand]:
 
 
 @cli_command
-class StatusCommand(FolderCommand):
+class StatusCommand(ProjectCommand):
     """Show repo or workspace status."""
 
     short_name = "s"
 
     def run(self) -> int:
         project_dir = self.get_project_dir()
-        print_project_status(project_dir)
+        project_dir.print_status()
         return 0
 
 
 @cli_command
-class FetchCommand(FolderCommand):
+class FetchCommand(ProjectCommand):
     """Fetch remotes, then show status."""
 
     short_name = "f"
@@ -143,14 +149,14 @@ class FetchCommand(FolderCommand):
         reports = {}
         for checkout in project_dir.checkouts:
             fetch_report = checkout.git.fetch(age=FETCH_COOLDOWN_SECONDS)
-            reports[checkout] = checkout_status_report(checkout, fetch_report)
+            reports[checkout] = checkout.status_report(fetch_report)
 
-        print_project_status(project_dir, reports)
+        project_dir.print_status(reports)
         return 0
 
 
 @cli_command
-class PullCommand(FolderCommand):
+class PullCommand(ProjectCommand):
     """Pull with rebase when the worktree is safe."""
 
     short_name = "p"
@@ -160,48 +166,39 @@ class PullCommand(FolderCommand):
         reports = {}
         for checkout in project_dir.checkouts:
             pull_report = checkout.git.pull()
-            reports[checkout] = checkout_status_report(checkout, pull_report)
+            reports[checkout] = checkout.status_report(pull_report)
 
-        print_project_status(project_dir, reports)
+        project_dir.print_status(reports)
         return 0
 
 
 @cli_command
-class MainCommand(FolderCommand):
+class MainCommand(SingleCheckoutCommand):
     """Checkout the default branch."""
 
     short_name = "m"
 
     def run(self) -> int:
         target = self.get_git_checkout()
-        report = checkout_default_branch(target)
-        print_checkout_status(target, report)
+        report = target.git.checkout_default_branch()
+        target.print_status(report)
         return 1 if report.has_problems else 0
 
 
 @cli_command
-class BranchesCommand(FolderCommand):
+class BranchesCommand(ProjectCommand):
     """Show local branches."""
 
     short_name = "b"
 
     def run(self) -> int:
         project_dir = self.get_project_dir()
-        if project_dir.is_single_checkout:
-            target = project_dir.checkouts[0]
-            print_branch_report(target)
-            return 0
-
-        for checkout in project_dir.checkouts:
-            if checkout.git.is_git_checkout:
-                print(f"{checkout.name}:")
-                print_branch_report(checkout, indent="  ")
-
+        project_dir.print_branch_reports()
         return 0
 
 
 @cli_command
-class GroomCommand(FolderCommand):
+class GroomCommand(SingleCheckoutCommand):
     """Fetch, return to default branch, pull, and clean stale local branches."""
 
     short_name = "g"
@@ -213,40 +210,40 @@ class GroomCommand(FolderCommand):
         fetch_report = target.git.fetch(age=None)
         if fetch_report.has_problems:
             report.add(fetch_report).add(problem="<can't groom")
-            print_checkout_status(target, report)
+            target.print_status(report)
             return 1
 
-        if has_pending_changes(target):
-            print_checkout_status(target, pending_changes_report(target))
+        if target.git.status.has_pending_changes:
+            target.print_status(target.git.status.pending_changes_report())
             return 1
 
-        current_report = current_branch_cleanable_report(target)
+        current_report = target.current_branch_cleanable_report()
         if current_report.has_problems:
-            print_checkout_status(target, current_report)
+            target.print_status(current_report)
             return 1
 
         report.add(current_report)
 
-        checkout_report = checkout_default_branch(target)
+        checkout_report = target.git.checkout_default_branch()
         if checkout_report.has_problems:
             report.add(checkout_report).add(problem="<can't groom")
-            print_checkout_status(target, report)
+            target.print_status(report)
             return 1
 
         report.add(checkout_report)
-        if has_pending_changes(target):
-            print_checkout_status(target, pending_changes_report(target))
+        if target.git.status.has_pending_changes:
+            target.print_status(target.git.status.pending_changes_report())
             return 1
 
         pull_report = target.git.pull()
         if pull_report.has_problems:
             report.add(pull_report).add(problem="<can't groom")
-            print_checkout_status(target, report)
+            target.print_status(report)
             return 1
 
         report.add(pull_report)
-        report.add(delete_stale_local_branches(target))
-        print_checkout_status(target, report)
+        report.add(target.delete_stale_local_branches())
+        target.print_status(report)
         return 1 if report.has_problems else 0
 
 
@@ -254,25 +251,29 @@ def command_for(token: str) -> type[CliCommand] | None:
     return COMMAND_BY_TOKEN.get(token)
 
 
-def command_help() -> str:
-    lines = ["commands:"]
-    for command in COMMANDS:
-        text = command.command_name()
-        if command.short_name:
-            text += f", {command.short_name}"
+class CommandHelpFormatter(argparse.HelpFormatter):
+    """Show subcommands as a compact command list."""
 
-        lines.append(f"  {text:<14} {command.summary()}")
+    def _format_action(self, action: argparse.Action) -> str:
+        if isinstance(action, argparse._SubParsersAction):
+            return "".join(self._format_action(choice_action) for choice_action in action._get_subactions())
 
-    return "\n".join(lines)
+        return super()._format_action(action)
 
 
-def split_command_args(args: list[str]) -> tuple[type[CliCommand], list[str]]:
-    if args:
-        command = command_for(args[0])
-        if command:
-            return command, args[1:]
-
-    return StatusCommand, args
+def add_command_parser(subparsers: argparse._SubParsersAction, command: type[CliCommand]) -> None:
+    aliases = [command.short_name] if command.short_name else []
+    parser = subparsers.add_parser(
+        command.command_name(),
+        aliases=aliases,
+        description=command.summary(),
+        formatter_class=CommandHelpFormatter,
+        help=command.summary(),
+        prog=f"mgit {command.command_name()}",
+    )
+    parser._action_groups[0].title = "Arguments"
+    command.add_arguments(parser)
+    parser.set_defaults(command_type=command)
 
 
 def build_parser():
@@ -280,12 +281,16 @@ def build_parser():
         prog="mgit",
         usage="mgit [GLOBAL_OPTIONS] [COMMAND] [ARGS...]",
         description="Inspect and update git checkouts.",
-        epilog=command_help(),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=CommandHelpFormatter,
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging.")
     parser.add_argument("--color", choices=("auto", "always", "never"), default="auto", help="Control ANSI color output.")
     parser.add_argument("--version", action="version", version=f"mgit {version('mgit')}")
+    subparsers = parser.add_subparsers(dest="command", title="Commands", metavar="COMMAND")
+    subparsers.required = True
+    for command in COMMANDS:
+        add_command_parser(subparsers, command)
+
     return parser
 
 
@@ -321,13 +326,30 @@ def split_global_args(args: list[str]) -> tuple[list[str], list[str]]:
     return global_args, args[i:]
 
 
+def normalized_cli_args(args: list[str]) -> list[str]:
+    global_args, command_args = split_global_args(args)
+    if global_args and global_args[-1] == "--color":
+        return global_args
+
+    if command_args:
+        command = command_for(command_args[0])
+        if command:
+            command_args[0] = command.command_name()
+
+        else:
+            command_args.insert(0, StatusCommand.command_name())
+
+    else:
+        command_args.append(StatusCommand.command_name())
+
+    return global_args + command_args
+
+
 def parse_cli_args(argv=None, parser=None):
     args = list(sys.argv[1:] if argv is None else argv)
     parser = parser or build_parser()
-    global_args, command_args = split_global_args(args)
-    namespace = parser.parse_args(global_args)
-    command_type, command_args = split_command_args(command_args)
-    command = command_type.parse(command_args)
+    namespace = parser.parse_args(normalized_cli_args(args))
+    command = namespace.command_type.from_namespace(namespace)
     return CliInvocation(
         flags=GlobalFlags(verbose=namespace.verbose, color=namespace.color),
         command=command,
@@ -338,168 +360,6 @@ def configure_runtime(verbose=False):
     runez.system.AbortException = SystemExit
     runez.date.DEFAULT_DURATION_SPAN = -2
     runez.log.setup(debug=verbose, level=logging.INFO, console_format="%(levelname)s %(message)s", locations=None)
-
-
-def checkout_default_branch(target):
-    """
-    :param GitCheckout target: Checkout to move to its default branch
-    :return GitRunReport: Checkout report
-    """
-    branch = target.git.default_branch
-    if target.git.branches.current == branch:
-        return GitRunReport()
-
-    _, error = target.git.run_git_command("checkout", branch)
-    target.git.reset_cached_properties()
-    if error.has_problems:
-        return GitRunReport(error).add(problem="<can't checkout default branch")
-
-    return GitRunReport(progress=f"checked out {branch}")
-
-
-def stale_tracked_local_branches(git):
-    """
-    :param mgit.git.GitDir git: Checkout model
-    :return list[str]: Local branches whose tracked remote branch is gone
-    """
-    result = []
-    for branch in sorted(git.local_cleanable_branches):
-        remote = git.config.tracking_remote.get(branch)
-        if remote and branch not in git.branches.by_remote.get(remote, set()):
-            result.append(branch)
-
-    return result
-
-
-def delete_stale_local_branches(target):
-    """
-    :param GitCheckout target: Checkout to clean
-    :return GitRunReport: Cleanup report
-    """
-    report = GitRunReport()
-    branches = stale_tracked_local_branches(target.git)
-    if not branches:
-        return report.add(note="no stale local branches")
-
-    for branch in branches:
-        if branch == target.git.branches.current:
-            report.add(problem=f"can't delete current branch '{branch}'")
-            continue
-
-        args = ["branch", "--delete", branch]
-        base_ref = target.git.cleanable_base_ref
-        if base_ref and not target.git.is_ancestor(branch, base_ref):
-            args.insert(2, "--force")
-
-        _, error = target.git.run_git_command(*args)
-        if error.has_problems:
-            report.add(problem=f"couldn't delete '{branch}': {error.representation()}")
-
-        else:
-            report.add(progress=f"deleted {branch}")
-
-    target.git.reset_cached_properties()
-    return report
-
-
-def pending_changes_report(target):
-    report = GitRunReport(problem="<can't groom").add(problem="pending changes")
-    if target.git.status.modified:
-        report.add(note=runez.plural(target.git.status.modified, "diff"))
-
-    if target.git.status.untracked:
-        report.add(note=f"{len(target.git.status.untracked)} untracked")
-
-    return report
-
-
-def current_branch_cleanable_report(target):
-    current = target.git.branches.current
-    if current == target.git.default_branch:
-        return GitRunReport(note=f"already on {target.git.default_branch} branch")
-
-    if target.git.is_cleanable_local_branch(current, include_current=True):
-        return GitRunReport()
-
-    return GitRunReport(problem="<can't groom").add(problem="current branch can't be cleaned")
-
-
-def has_pending_changes(target):
-    return bool(target.git.status.modified or target.git.status.untracked)
-
-
-def checkout_status_report(target, report=None):
-    report = GitRunReport(report)
-    if not report.has_problems:
-        report.add(target.git.report())
-
-    return report
-
-
-def print_project_status(project_dir, reports=None):
-    if not project_dir.checkouts:
-        print(project_dir.header)
-        return
-
-    if len(project_dir.checkouts) > 1:
-        print(project_dir.header)
-
-    reports = reports or {}
-    show_details = project_dir.is_single_checkout
-    for checkout in project_dir.checkouts:
-        print_checkout_status(checkout, reports.get(checkout), show_details=show_details)
-
-
-def print_checkout_status(target, report=None, show_details=True):
-    print(target.header(report))
-    if not show_details:
-        return
-
-    if len(target.git.orphan_branches) > 1:
-        orphan_branches = ", ".join(target.git.orphan_branches)
-        print(f"  Orphan branches: {orphan_branches}")
-
-    print_modified(target.git.status.modified, index_change, worktree_change)
-    print_modified(target.git.status.untracked, untracked_change)
-
-
-def branch_annotations(target, name):
-    annotations = []
-    if name == target.git.default_branch:
-        annotations.append(branch_default("[default]"))
-
-    if name in target.git.orphan_branches and name not in target.git.special_branches:
-        annotations.append(branch_orphaned("[orphaned]"))
-
-    return annotations
-
-
-def branch_lines(target):
-    branches = sorted(target.git.branches.local)
-    if not branches:
-        return ["  no local branches"]
-
-    width = max(len(name) for name in branches)
-    lines = []
-    for name in branches:
-        is_current = name == target.git.branches.current
-        marker = "*" if is_current else " "
-        line = f"{marker} {name:<{width}}"
-        if is_current:
-            line = branch_current(line)
-
-        annotations = branch_annotations(target, name)
-        if annotations:
-            line += f"  {' '.join(annotations)}"
-
-        lines.append(line)
-
-    return lines
-
-
-def print_branch_report(target, indent=""):
-    for line in branch_lines(target):
-        print(f"{indent}{line}")
 
 
 def run_invocation(invocation):

@@ -15,8 +15,6 @@ def check_sorting(given: GitRunReport | str, expected, max_chars=120):
 
 
 def test_reporting():
-    assert GitRunReport.not_git().has_problems
-
     # Sorting
     check_sorting("a b c", "a; b; c")  # Messages stay in order they were provided
     check_sorting("a b c b a", "a; b; c")  # No dupes
@@ -26,8 +24,6 @@ def test_reporting():
     check_sorting("a <b >c <d >e f", "d; b; a; f; c; e")  # > ordered pushing
 
     # Typical issues
-    check_sorting(GitRunReport.not_git(), "not a git checkout")
-    check_sorting(GitRunReport.not_git().cant_pull(), "can't pull; not a git checkout")
     check_sorting(GitRunReport().cant_pull(), "can't pull")
     check_sorting(GitRunReport().cant_pull("foo"), "can't pull; foo")
 

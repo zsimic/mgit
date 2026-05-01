@@ -3,6 +3,8 @@ import subprocess
 from pathlib import Path
 from textwrap import dedent
 
+from mgit.cli import normalized_cli_args
+
 GIT = shutil.which("git") or "git"
 
 
@@ -90,14 +92,21 @@ def make_squashed_stale_tracked_branch(work):
 def test_command_help(cli):
     cli.run("--help")
     assert cli.succeeded
-    assert "commands:" in cli.logged
-    assert "status, s" in cli.logged
+    assert "Commands:" in cli.logged
+    assert "status (s)" in cli.logged
 
     cli.run("s --help")
     assert cli.succeeded
     assert "usage: mgit status" in cli.logged
     assert "Show repo or workspace status." in cli.logged
     assert "folder" in cli.logged
+
+
+def test_cli_arg_normalization():
+    assert normalized_cli_args([]) == ["status"]
+    assert normalized_cli_args(["workspace"]) == ["status", "workspace"]
+    assert normalized_cli_args(["f", "workspace"]) == ["fetch", "workspace"]
+    assert normalized_cli_args(["--color", "always", "g", "checkout"]) == ["--color", "always", "groom", "checkout"]
 
 
 def test_workspace_status_alignment(cli):

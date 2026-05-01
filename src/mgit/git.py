@@ -70,10 +70,6 @@ class GitRunReport:
         """
         return bool(text) and any(text in problem for problem in self._problem)
 
-    @classmethod
-    def not_git(cls):
-        return GitRunReport(problem="<not a git checkout")
-
     def cant_pull(self, reason=None):
         self.add(problem="<can't pull")
         if reason:
@@ -241,24 +237,15 @@ class GitDir:
         :param Path path: Path to local repo
         """
         self.path = path
-        self.folder_exists = self.path.exists()
-        self.is_git_checkout = self.folder_exists and (self.path / ".git").is_dir()
 
     def __repr__(self):
-        if not self.is_git_checkout:
-            return f"! {self.path}"
-
         return str(self.path)
 
-    def report(self, bare=False, inspect_remotes=False) -> GitRunReport:
+    def report(self, bare=False) -> GitRunReport:
         """
         :param bool bare: Bare report only
-        :param bool inspect_remotes: If True, report on which remote branches are cleanable
         :return GitRunReport: General report on current checkout state
         """
-        if not self.is_git_checkout:
-            return GitRunReport.not_git()
-
         result = GitRunReport()
 
         if not self.config.remotes:
@@ -286,43 +273,15 @@ class GitDir:
             result.add(note=f"{runez.plural(cleanable, 'local branch')} can be pruned")
 
         result.add(self.branches.report)
-
-        if inspect_remotes and self.remote_cleanable_branches:
-            if len(self.remote_cleanable_branches) == 1:
-                cleanable = f"'{next(iter(self.remote_cleanable_branches))}'"
-
-            else:
-                cleanable = runez.plural(self.remote_cleanable_branches, "remote branch")
-
-            result.add(note=f"{cleanable} can be cleaned")
-
         return result
-
-    def _git_command(self, args) -> tuple[list[str], str]:
-        """
-        :param list|tuple args: Git command + args to use
-        :return list, str: Full git invocation + human friendly representation
-        """
-        cmd = ["git"]
-        represented_args = [str(arg) for arg in args]
-        joined_args = " ".join(represented_args)
-        if args and args[0] == "clone":
-            args_represented = f"git {joined_args}"
-
-        else:
-            args_represented = f"git -C {runez.short(self.path)} {joined_args}"
-            cmd.extend(["-C", str(self.path)])
-
-        cmd.extend(represented_args)
-        return cmd, args_represented
 
     def run_git_command(self, *args) -> tuple[str, GitRunReport]:
         """
         :param args: Execute git command with provided args
         :return str, GitRunReport: Output from git command + report on eventual error
         """
-        cmd, pretty_args = self._git_command(args)
-        LOG.debug("Running: %s", pretty_args)
+        cmd = ["git", "-C", str(self.path), *args]
+        LOG.debug("Running: git -C %s %s", runez.short(self.path), " ".join(args))
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
         output, error = proc.communicate()
         if proc.returncode == 0:
@@ -342,9 +301,6 @@ class GitDir:
         :param int|None age: Fetch if age is older than specified number of seconds, use None to fetch unconditionally
         :return GitRunReport:
         """
-        if not self.is_git_checkout:
-            return GitRunReport.not_git()
-
         if age is not None:
             current_age = self.age
             if current_age is not None and current_age <= age:
@@ -354,11 +310,23 @@ class GitDir:
         self.reset_cached_properties()
         return error
 
+    def checkout_default_branch(self) -> GitRunReport:
+        """
+        :return GitRunReport: Checkout report
+        """
+        branch = self.default_branch
+        if self.branches.current == branch:
+            return GitRunReport()
+
+        _, error = self.run_git_command("checkout", branch)
+        self.reset_cached_properties()
+        if error.has_problems:
+            return GitRunReport(error).add(problem="<can't checkout default branch")
+
+        return GitRunReport(progress=f"checked out {branch}")
+
     def pull(self) -> GitRunReport:
         """Pull from tracked remote"""
-        if not self.is_git_checkout:
-            return GitRunReport.not_git().cant_pull()
-
         report = self.report(bare=True)
         if report.has_problems:
             return report.cant_pull()
@@ -406,20 +374,6 @@ class GitDir:
         lines.append(error.representation(progress=False, note=False).strip())
         output = lines[0] if lines else "no output"
         return GitRunReport(note=f"pull may have been unsuccessful ({output})")
-
-    def clone(self, url) -> GitRunReport:
-        if self.folder_exists:
-            return GitRunReport(problem="folder already exists, can't clone")
-
-        _, error = self.run_git_command("clone", url, self.path)
-        self.folder_exists = self.path.exists()
-        self.is_git_checkout = self.folder_exists and (self.path / ".git").is_dir()
-        self.reset_cached_properties()
-
-        if error.has_problems:
-            return error.add(problem="<can't clone")
-
-        return GitRunReport(progress="cloned successfully")
 
     @runez.cached_property
     def age(self) -> int | None:
@@ -597,27 +551,15 @@ class GitDir:
         """
         return {name for name in self.branches.local if self.is_cleanable_local_branch(name)}
 
-    @runez.cached_property
-    def remote_cleanable_branches(self) -> set[str]:
+    def stale_tracked_local_branches(self) -> list[str]:
         """
-        :return set: Remote branches that can be cleaned
+        :return list[str]: Local branches whose tracked remote branch is gone
         """
-        result = set()
-        for remote, branches in self.branches.by_remote.items():
-            if remote not in self.config.remotes:
-                continue
-
-            default_ref = self._default_ref_for_remote(remote)
-            if not default_ref:
-                continue
-
-            for branch in branches:
-                if branch in self.special_branches:
-                    continue
-
-                ref = f"{remote}/{branch}"
-                if ref != default_ref and self.is_cleanable_merged(ref, default_ref):
-                    result.add(ref)
+        result = []
+        for branch in sorted(self.local_cleanable_branches):
+            remote = self.config.tracking_remote.get(branch)
+            if remote and branch not in self.branches.by_remote.get(remote, set()):
+                result.append(branch)
 
         return result
 
@@ -648,7 +590,7 @@ class GitAspect:
             v = collections.defaultdict(v.default_factory) if isinstance(v, collections.defaultdict) else v.__class__()
             setattr(self, k, v)
 
-        if not self._parent.is_git_checkout or not self._command:
+        if not self._command:
             return
 
         output, error = self._parent.run_git_command(*self._command.split())
@@ -671,7 +613,7 @@ class GitBranches(GitAspect):
 
     def __init__(self, parent: GitDir, auto_load=True):
         self.current = ""  # Current local branch
-        self.local = set()  # Local branches
+        self.local: set[str] = set()  # Local branches
         self.by_remote = collections.defaultdict(set)  # Branches by remote (usually origin and optionally upstream)
         self.default_branches: dict[str, str] = {}  # Default branch per remote
         self.report = GitRunReport()
@@ -778,6 +720,20 @@ class GitStatus(GitAspect):
             result.append(output.ok("up to date"))
 
         return ", ".join(result)
+
+    @property
+    def has_pending_changes(self) -> bool:
+        return bool(self.modified or self.untracked)
+
+    def pending_changes_report(self) -> GitRunReport:
+        report = GitRunReport(problem="<can't groom").add(problem="pending changes")
+        if self.modified:
+            report.add(note=runez.plural(self.modified, "diff"))
+
+        if self.untracked:
+            report.add(note=f"{len(self.untracked)} untracked")
+
+        return report
 
     def _process_line(self, line):
         if line[0] == "#":

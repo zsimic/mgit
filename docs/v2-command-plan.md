@@ -79,6 +79,17 @@ The implementation uses command classes. Each command defines:
 - command-specific argument parser
 - run behavior
 
+The top-level parser uses argparse subparsers. Before parsing, argv is
+normalized so a missing command becomes `status` and short names are expanded to
+their canonical command names.
+
+Commands are grouped by target shape:
+
+- `ProjectCommand`: `status`, `fetch`, `pull`, and `branches` operate on a
+  `ProjectDir`, which may contain zero, one, or many `GitCheckout` items.
+- `SingleCheckoutCommand`: `main` and `groom` require one concrete
+  `GitCheckout` and reject workspace folders.
+
 Implemented command set:
 
 | Command | Short | Meaning |

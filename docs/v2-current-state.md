@@ -54,40 +54,40 @@ still deferred.
 - `GlobalFlags` captures top-level verbosity and color policy separately from
   command-specific arguments.
 - `CliInvocation` captures the selected parsed command object and global flags.
-- `CliCommand` and `FolderCommand` model commands directly. `FolderCommand`
-  supplies the common optional `folder` argument used by status/fetch/pull/main,
-  branches, and groom.
-- `FolderCommand.get_project_dir()` returns a `ProjectDir` for commands that
-  work across one checkout or a workspace.
-- `FolderCommand.get_git_checkout()` is used by single-checkout commands and
-  returns a typed `GitCheckout`.
+- `CliCommand` models shared command behavior, while `FolderTargetCommand`
+  supplies the common optional `folder` argument and folder normalization.
+  Current-folder requests climb to a parent git checkout, then fall back to the
+  current directory.
+- `ProjectCommand` returns a `ProjectDir` for commands that work across one
+  checkout or a workspace: status, fetch, pull, and branches.
+- `SingleCheckoutCommand` returns a typed `GitCheckout` for commands that require
+  exactly one checkout: main and groom.
 - `StatusCommand`, `FetchCommand`, and `PullCommand` spell out their run
   behavior directly rather than routing through shared fetch/pull flags.
-- `parse_cli_args()` parses leading global flags, resolves the command token or
-  short name, defaults to status when no command matches, and then delegates the
-  remaining arguments to the selected command parser.
-- `mgit --help` shows the command list, while command help such as
-  `mgit s --help` is handled by the resolved command parser.
+- `parse_cli_args()` normalizes argv before parsing: it inserts `status` when
+  the first non-global token is not a command, expands short names such as `f`
+  to `fetch`, and then lets the top-level argparse parser dispatch through real
+  subparsers.
+- `mgit --help` shows argparse's command list with aliases, while command help
+  such as `mgit s --help` is normalized to the full command name before parsing.
 - The registry currently includes status, fetch, pull, main, branches, and
   groom.
 
-`src/mgit/__init__.py` still combines target discovery, workspace modeling, and
-some status rendering:
+`src/mgit/__init__.py` still combines workspace modeling and status/branch
+rendering:
 
-- `find_actual_path()` resolves the requested folder and is the folder
-  normalization boundary. Current-folder requests climb to a parent git
-  checkout, then fall back to the current directory.
-- `GitCheckout` wraps one local path and renders its status header.
-- `ProjectDir` represents the requested folder as zero or more git checkouts.
-  It handles a requested single checkout and direct-child workspace scans with
-  the same model.
+- `GitCheckout` wraps one local path, composes checkout status reports, renders
+  status and branch output, and owns local-checkout grooming helpers such as
+  current-branch cleanability and stale local branch deletion.
+- `ProjectDir` represents the requested folder as a collection of zero or more
+  git checkouts. Its print helpers handle status and branch reports for the
+  collection, including the workspace/no-repos header rule.
 - The old `MgitPreferences` object and Stash/GitHub/unknown remote grouping
   were removed. URL parsing can be modeled later where clone/config behavior
   actually needs it.
 
-`src/mgit/output.py` holds color/style helpers. The rendering split is only
-partial: color policy has moved out, but status and workspace line composition
-still live in `cli.py` and `__init__.py`.
+`src/mgit/output.py` holds color/style helpers. Status and workspace line
+composition currently live on `GitCheckout` and `ProjectDir`.
 
 `src/mgit/git.py` holds most git-specific behavior:
 
@@ -134,7 +134,6 @@ still live in `cli.py` and `__init__.py`.
 - `GitDir` mixes command execution, cached state, mutations, and reporting.
 - `clone` is planned but not implemented, and the config guide does not exist
   yet.
-- `remote_cleanable_branches` only considers SSH remotes.
 - The CLI no longer uses Click, but `click<9` is still listed as a runtime
   dependency.
 - `runez` remains central for cached properties, paths, durations, aborts,
