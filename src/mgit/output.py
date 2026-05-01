@@ -13,8 +13,8 @@ def color_context(policy):
     return contextlib.nullcontext()
 
 
-def branch(text):
-    return runez.bold(text)
+def branch_current(text):
+    return runez.green(text)
 
 
 def branch_default(text):
@@ -50,14 +50,6 @@ def progress(text):
 
 
 def workspace_path(text):
-    return runez.purple(text)
-
-
-def workspace_primary(text):
-    return runez.bold(text)
-
-
-def workspace_detail(text):
     return runez.purple(text)
 
 

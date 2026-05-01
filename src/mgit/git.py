@@ -15,22 +15,10 @@ from mgit import output
 LOG = logging.getLogger(__name__)
 FETCH_AGE_FILES = ("FETCH_HEAD", "HEAD")
 FRESHNESS_THRESHOLD = 12 * runez.date.SECONDS_IN_ONE_HOUR
-BRANCH_INVALID_CHARS = "~^: \t\\"
 GIT_ERROR_PREFIXES = {"git", "error", "fatal"}
 
 RE_GITHUB_SSH = re.compile(r"^git@([^:]+):(\w+)/([^/]+)$")
 RE_BRANCH_STATUS = re.compile(r"^## (.+)\.\.\.(([^/]+)/)?([^ ]+)\s*(\[(.+)])?$")
-
-
-def is_valid_branch_name(name):
-    """
-    :param str|None name: Branch name to validate
-    :return bool: True if branch name appears valid, as per https://wincent.com/wiki/Legal_Git_branch_names
-    """
-    if not name or name[0] == "." or ".." in name or name.endswith(("/", ".lock")):
-        return False
-
-    return not any(ord(char) < 32 or char in BRANCH_INVALID_CHARS for char in name)
 
 
 def shortened_message(text, keep_lines=2, separator=" "):
@@ -255,7 +243,6 @@ class GitDir:
         self.path = path
         self.folder_exists = self.path.exists()
         self.is_git_checkout = self.folder_exists and (self.path / ".git").is_dir()
-        self.remote_info = None
 
     def __repr__(self):
         if not self.is_git_checkout:
@@ -270,9 +257,6 @@ class GitDir:
         :return GitRunReport: General report on current checkout state
         """
         if not self.is_git_checkout:
-            if self.remote_info:
-                return GitRunReport(problem="not cloned yet")
-
             return GitRunReport.not_git()
 
         result = GitRunReport()
@@ -746,19 +730,6 @@ class GitConfig(GitAspect):
         self.tracking_remote = {}  # Remotes that each local branch is tracking
         self.content = {}
         super().__init__(parent, auto_load=auto_load)
-
-    @runez.cached_property
-    def repo_name(self) -> str | None:
-        """
-        :return str: Most significant repository name
-        """
-        if self.origin:
-            return self.origin.name
-
-        for r in self.remotes.values():
-            return r.name
-
-        return None
 
     def _process_line(self, line):
         k, _, v = line.partition("=")

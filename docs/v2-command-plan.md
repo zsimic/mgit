@@ -8,8 +8,8 @@ plan, not a promise. Update it as decisions settle.
 - Keep `mgit` fast to type and easy to reason about.
 - Make `mgit` with no command mean status.
 - Use subcommands instead of behavior-heavy flags.
-- Support short aliases for common commands where the alias is unambiguous.
-- Let each command declare whether it supports one repo, many repos, or both.
+- Support short names for common commands where the short name is unambiguous.
+- Let each command own its argument parser and reject invalid arguments itself.
 - Keep output shape simple and consistent: single-checkout status can show
   changed paths, while workspace status stays compact.
 - Prefer stdlib implementation unless a dependency removes enough complexity to
@@ -57,63 +57,60 @@ This split is intentional. `fetch` and `pull` should stay separate for ordinary
 updates so the user can inspect remote state before pulling. `groom` is the
 workflow bundle for the post-merge cleanup case.
 
-Target handling:
+Folder handling:
 
-- Most commands accept an optional path target.
-- If no target is supplied and the current directory is inside a git checkout,
-  the target is that checkout.
-- If no target is supplied and the current directory is not inside a checkout,
-  the target is the current directory as a workspace.
-- A single unknown token is treated as a `status` target, so `mgit path`
-  inspects that path. Extra positional tokens are invalid usage.
+- Most commands accept an optional folder.
+- If no folder is supplied and the current directory is inside a git checkout,
+  the folder resolves to that checkout.
+- If no folder is supplied and the current directory is not inside a checkout,
+  the folder is the current directory as a workspace.
+- A single unknown token is treated as a `status` folder, so `mgit folder`
+  inspects that folder. Extra positional tokens are invalid usage.
 - A workspace scan is depth 1 only: inspect direct children matching
   `<workspace>/*/.git`. Nested descendants are out of scope for now.
 
 ## Command Registry
 
-The implementation uses an explicit command registry in `src/mgit/commands.py`.
-Each command defines:
+The implementation uses command classes. Each command defines:
 
 - canonical name
-- aliases
-- help summary
-- accepted scope: single, multi, or both
-- whether it mutates local state
-- whether it mutates remote state
-- handler function
+- optional short name
+- help summary via the class docstring
+- command-specific argument parser
+- run behavior
 
 Implemented command set:
 
-| Command | Aliases | Scope | Mutates | Meaning |
-| --- | --- | --- | --- | --- |
-| `status` | `s` | both | no | Show repo or workspace status. |
-| `fetch` | `f` | both | local refs | Run `git fetch --all --prune`, then status. |
-| `pull` | `p` | both | worktree | Pull with rebase only when safe. |
-| `main` | `m` | single | worktree | Checkout the default branch. |
-| `groom` | `g` | single | local branches | Run the local branch-cleanup workflow. |
-| `branches` | `b` | both | no | Show local branches, useful across workspaces. |
+| Command | Short | Meaning |
+| --- | --- | --- |
+| `status` | `s` | Show repo or workspace status. |
+| `fetch` | `f` | Run `git fetch --all --prune`, then status. |
+| `pull` | `p` | Pull with rebase only when safe. |
+| `main` | `m` | Checkout the default branch. |
+| `groom` | `g` | Run the local branch-cleanup workflow. |
+| `branches` | `b` | Show local branches, useful across workspaces. |
 
 Planned next command:
 
-| Command | Aliases | Scope | Mutates | Meaning |
-| --- | --- | --- | --- | --- |
-| `clone` | `c` | command-specific | filesystem | Clone URL into configured best-match location. |
+| Command | Short | Meaning |
+| --- | --- | --- |
+| `clone` | `c` | Clone URL into configured best-match location. |
 
 Maybe-later destructive commands:
 
-| Command | Aliases | Scope | Destructive action |
-| --- | --- | --- | --- |
-| `groom-remote` | none | single first | Delete merged remote branches. |
-| `groom-all` | none | single first | Delete local and merged remote branches. |
-| `zap-zap` | none | single | Reset hard and delete untracked files. |
+| Command | Short | Destructive action |
+| --- | --- | --- |
+| `groom-remote` | none | Delete merged remote branches. |
+| `groom-all` | none | Delete local and merged remote branches. |
+| `zap-zap` | none | Reset hard and delete untracked files. |
 
-Alias policy:
+Short-name policy:
 
-- One-letter aliases are for high-frequency commands only.
-- Ambiguous aliases should fail with a helpful message.
-- `g` is the one deliberate exception to the dangerous-alias rule because local
-  grooming is a core workflow. Remote deletion and reset commands should not get
-  one-letter aliases.
+- One-letter short names are for high-frequency commands only.
+- Ambiguous short names should fail with a helpful message.
+- `g` is the one deliberate exception to the dangerous-short-name rule because
+  local grooming is a core workflow. Remote deletion and reset commands should
+  not get one-letter short names.
 
 ## Command Semantics
 
@@ -124,14 +121,15 @@ Alias policy:
   state, and stale fetch notes.
 - For a single checkout, shows modified/untracked paths.
 - For a workspace, keeps each checkout to one compact status line.
+- A workspace header is shown when multiple checkouts are reported.
 
 `fetch`:
 
-- Runs `git fetch --all --prune`.
+- Runs `git fetch --all --prune`, skipping checkouts fetched in the last 30
+  seconds.
 - In a workspace, runs per checkout and reports failures per repo.
 - Reports the resulting status so the user can decide whether to pull or groom.
-- Should avoid refetching if a freshness threshold is provided in the future;
-  v2 can start with explicit fetch always fetching.
+- Reports the current status even when a checkout is fresh enough to skip.
 
 `pull`:
 

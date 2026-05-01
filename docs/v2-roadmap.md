@@ -25,21 +25,22 @@ accurate as work proceeds.
 
 ## Phase 1: Architecture Skeleton
 
-- [x] Introduce a command registry with command metadata.
+- [x] Introduce a command registry with command classes.
 - [x] Introduce argparse parsing for the v2 command shape.
 - [ ] Move target discovery into a dedicated module.
 - [x] Enforce depth-1 workspace scanning.
 - [x] Add an output/color helper module.
 - [ ] Move remaining status/report rendering into a dedicated module.
-- [x] Simplify `MgitPreferences` to active fetch/pull/display fields.
+- [x] Remove `MgitPreferences` and make commands own their fetch/pull behavior.
 - [x] Make default-branch resolution a cached `GitDir.default_branch`
   property.
-- [ ] Keep `GitRunReport`, `GitURL`, and parser tests green during moves.
+- [ ] Keep `GitRunReport` rendering tests and high-level CLI behavior tests
+  green during moves.
 
 Suggested module split:
 
-- `mgit.cli`: argparse entry point and top-level error handling.
-- `mgit.commands`: command registry and command handlers.
+- `mgit.cli`: argparse entry point, top-level error handling, command registry,
+  and command handlers.
 - `mgit.discovery`: target resolution and workspace scanning.
 - `mgit.git`: low-level git command runner and git state parsers.
 - `mgit.config`: v2 TOML config loading and clone-location matching.
@@ -59,8 +60,8 @@ Suggested module split:
 - [x] Require cleanable branches to be merged or content-equivalent to the
   default branch.
 - [x] Refuse `groom` from non-default branches that are not cleanable.
-- [x] Add CLI tests for default command, aliases, explicit commands, invalid
-  usage, and target paths.
+- [x] Add CLI tests for default command, short names, explicit commands,
+  invalid usage, and folders.
 
 ## Phase 3: Clone Command
 

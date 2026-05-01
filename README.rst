@@ -51,7 +51,7 @@ Clean up after a branch is merged::
 
     mgit g      # fetch, return to the default branch, pull, prune stale locals
 
-The short aliases are the intended interface:
+The short names are the intended interface:
 
 - ``status`` / ``s``: show repo or workspace status. This is the default.
 - ``fetch`` / ``f``: refresh remote refs, then report status.
@@ -62,9 +62,9 @@ The short aliases are the intended interface:
 
 The command shape is::
 
-    mgit [-v] [--color auto|always|never] [COMMAND] [TARGET]
+    mgit [-v] [--color auto|always|never] [COMMAND] [FOLDER]
 
-You can pass a target path to most commands::
+You can pass a folder to most commands::
 
     mgit ~/github
     mgit f ~/github
@@ -93,7 +93,7 @@ In one glance you get:
 - fetch freshness
 - stale local branch notes
 
-When the target is a single checkout, status also shows the pending paths.
+When the folder is a single checkout, status also shows the pending paths.
 Workspace output stays compact so many repos remain scannable::
 
     mgit ~/github/mgit

@@ -7,9 +7,9 @@ historical starting point and should not be edited as the live plan changes.
 ## Files Examined
 
 - Runtime code: `src/mgit/__init__.py`, `src/mgit/cli.py`,
-  `src/mgit/commands.py`, `src/mgit/git.py`, `src/mgit/output.py`.
-- Tests: `tests/conftest.py`, `tests/test_cli.py`, `tests/test_git.py`,
-  `tests/test_mgit.py`, `tests/test_reporting.py`.
+  `src/mgit/git.py`, `src/mgit/output.py`.
+- Tests: `tests/conftest.py`, `tests/test_cli.py`,
+  `tests/test_reporting.py`.
 - Packaging and tooling: `pyproject.toml`, `tox.ini`, `MANIFEST.in`,
   `.github/workflows/tests.yml`, `.github/workflows/release.yml`.
 - Docs: `README.rst`, `docs/contributing.rst`, `docs/v2-command-plan.md`,
@@ -20,11 +20,11 @@ historical starting point and should not be edited as the live plan changes.
 The active CLI is now argparse based:
 
 ```shell
-mgit [GLOBAL_OPTIONS] [COMMAND] [TARGET]
+mgit [GLOBAL_OPTIONS] [COMMAND] [FOLDER]
 ```
 
 Default behavior is status. A single unknown token is treated as a status
-target, so `mgit path` means `mgit status path`. Extra positional tokens are
+folder, so `mgit folder` means `mgit status folder`. Extra positional tokens are
 invalid usage.
 
 Global options are intentionally small:
@@ -49,39 +49,41 @@ still deferred.
 
 ## Current Runtime Model
 
-`src/mgit/cli.py` owns the argparse entry point:
+`src/mgit/cli.py` owns the argparse entry point and command classes:
 
-- `CliInvocation` captures the selected command, target, verbosity, and color
-  policy.
-- `parse_cli_args()` maps command tokens and aliases onto the command registry.
-- `target_preferences()` bridges command intent into the existing target model
-  for `status`, `fetch`, and `pull`.
-- Command handlers currently live here for branch reports, `main`, and
-  single-repo `groom`.
-
-`src/mgit/commands.py` is the explicit command registry:
-
-- `CommandSpec` is a frozen dataclass with canonical name, aliases, help
-  summary, scope, mutation flags, and handler id.
+- `GlobalFlags` captures top-level verbosity and color policy separately from
+  command-specific arguments.
+- `CliInvocation` captures the selected parsed command object and global flags.
+- `CliCommand` and `FolderCommand` model commands directly. `FolderCommand`
+  supplies the common optional `folder` argument used by status/fetch/pull/main,
+  branches, and groom.
+- `FolderCommand.get_project_dir()` returns a `ProjectDir` for commands that
+  work across one checkout or a workspace.
+- `FolderCommand.get_git_checkout()` is used by single-checkout commands and
+  returns a typed `GitCheckout`.
+- `StatusCommand`, `FetchCommand`, and `PullCommand` spell out their run
+  behavior directly rather than routing through shared fetch/pull flags.
+- `parse_cli_args()` parses leading global flags, resolves the command token or
+  short name, defaults to status when no command matches, and then delegates the
+  remaining arguments to the selected command parser.
+- `mgit --help` shows the command list, while command help such as
+  `mgit s --help` is handled by the resolved command parser.
 - The registry currently includes status, fetch, pull, main, branches, and
   groom.
 
-`src/mgit/__init__.py` still combines target discovery, workspace modeling,
-preferences, and some status rendering:
+`src/mgit/__init__.py` still combines target discovery, workspace modeling, and
+some status rendering:
 
-- `CliInvocation.target` always has a `Path`, defaulting to the current folder.
-- `find_actual_path()` resolves that target and is the target-normalization
-  boundary. Current-folder targets climb to a parent git checkout, then fall
-  back to the current directory.
-- `get_target()` accepts a `Path` target and returns either `GitCheckout` or
-  `ProjectDir`.
-- `MgitPreferences` has been simplified to active fields only: name alignment,
-  fetch/fetch age, pull, and optional remote inspection.
-- `GitCheckout` wraps one local path and prints status.
-- `ProjectDir` scans direct child directories only, collects git checkouts,
-  detects predominant remote project grouping, and prints multi-repo status.
-- `RemoteProject` classes currently identify GitHub, Stash, or unknown remotes,
-  but server-side project listing is not implemented.
+- `find_actual_path()` resolves the requested folder and is the folder
+  normalization boundary. Current-folder requests climb to a parent git
+  checkout, then fall back to the current directory.
+- `GitCheckout` wraps one local path and renders its status header.
+- `ProjectDir` represents the requested folder as zero or more git checkouts.
+  It handles a requested single checkout and direct-child workspace scans with
+  the same model.
+- The old `MgitPreferences` object and Stash/GitHub/unknown remote grouping
+  were removed. URL parsing can be modeled later where clone/config behavior
+  actually needs it.
 
 `src/mgit/output.py` holds color/style helpers. The rendering split is only
 partial: color policy has moved out, but status and workspace line composition
@@ -110,7 +112,6 @@ still live in `cli.py` and `__init__.py`.
 
 - The v2 command registry and argparse parser are in place for the first
   command slice.
-- URL parsing coverage and behavior from `GitURL`.
 - `GitRunReport` semantics, especially deduping, ordering, truncation, and
   problem/progress/note separation.
 - `GitStatus` parsing of `git status --porcelain --branch`.
@@ -118,7 +119,7 @@ still live in `cli.py` and `__init__.py`.
 - The guarded `pull()` behavior that refuses when there are pending changes or
   status problems.
 - Direct-child workspace scanning for multi-repo folders.
-- The default target behavior: when no target is supplied, use the current git
+- The default folder behavior: when no folder is supplied, use the current git
   checkout if the current directory is inside one.
 - `main` is treated as a user-facing command for "default branch", not a
   literal branch name.
@@ -129,7 +130,7 @@ still live in `cli.py` and `__init__.py`.
 ## Remaining Work
 
 - `src/mgit/__init__.py` mixes public package imports, repo discovery, models,
-  preferences, and status rendering.
+  and status rendering.
 - `GitDir` mixes command execution, cached state, mutations, and reporting.
 - `clone` is planned but not implemented, and the config guide does not exist
   yet.
@@ -146,11 +147,8 @@ still live in `cli.py` and `__init__.py`.
 
 Existing tests cover:
 
-- Branch-name validation.
-- Git URL parsing.
 - Report composition, sorting, filtering, and truncation.
-- Argparse command parsing, aliases, default command behavior, and invalid
-  positional usage.
+- CLI help, command dispatch, and default command behavior.
 - Workspace status alignment and the fact that `-v/--verbose` controls logging,
   not output shape.
 - Single-checkout pending path output.
@@ -158,7 +156,6 @@ Existing tests cover:
 - `main` checkout behavior.
 - Single-repo `groom` deleting a stale tracked branch and refusing pending
   changes.
-- Basic CLI help/version/error/status behavior.
 
 Coverage is light around:
 

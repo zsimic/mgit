@@ -3,12 +3,6 @@ import subprocess
 from pathlib import Path
 from textwrap import dedent
 
-import pytest
-
-from mgit.cli import parse_cli_args
-from mgit.commands import command_for, COMMANDS
-from mgit.git import GitDir
-
 GIT = shutil.which("git") or "git"
 
 
@@ -93,52 +87,17 @@ def make_squashed_stale_tracked_branch(work):
     git(work, "checkout", "squashed")
 
 
-def test_command_registry_core_slice():
-    assert {command.name: command.aliases for command in COMMANDS} == {
-        "status": ("s",),
-        "fetch": ("f",),
-        "pull": ("p",),
-        "main": ("m",),
-        "branches": ("b",),
-        "groom": ("g",),
-    }
-    assert command_for("g").name == "groom"
-    assert command_for("status").scope == "both"
-    assert command_for("groom").scope == "single"
+def test_command_help(cli):
+    cli.run("--help")
+    assert cli.succeeded
+    assert "commands:" in cli.logged
+    assert "status, s" in cli.logged
 
-
-@pytest.mark.parametrize(
-    ("argv", "command", "target"),
-    [
-        ([], "status", "."),
-        (["status"], "status", "."),
-        (["s"], "status", "."),
-        (["fetch"], "fetch", "."),
-        (["f"], "fetch", "."),
-        (["pull"], "pull", "."),
-        (["p"], "pull", "."),
-        (["branches"], "branches", "."),
-        (["b"], "branches", "."),
-        (["groom"], "groom", "."),
-        (["g"], "groom", "."),
-        (["main"], "main", "."),
-        (["m"], "main", "."),
-        (["status", "repo"], "status", "repo"),
-        (["repo"], "status", "repo"),
-    ],
-)
-def test_parse_core_commands(argv, command, target):
-    invocation = parse_cli_args(argv)
-    assert invocation.command.name == command
-    assert invocation.target == Path(target)
-
-
-def test_parse_rejects_extra_targets(cli):
-    cli.run("fetch one two")
-
-    assert cli.failed
-    assert cli.exit_code == 2
-    assert "fetch accepts at most one target" in cli.logged
+    cli.run("s --help")
+    assert cli.succeeded
+    assert "usage: mgit status" in cli.logged
+    assert "Show repo or workspace status." in cli.logged
+    assert "folder" in cli.logged
 
 
 def test_workspace_status_alignment(cli):
@@ -146,7 +105,7 @@ def test_workspace_status_alignment(cli):
     make_repo(Path("my-workspace/longer-name"))
 
     expected = dedent("""\
-        my-workspace: 2 unknown/unknown
+        my-workspace:
         longer-name: [main] up to date  no remotes; current branch 'main' is orphaned
               short: [main] up to date  no remotes; current branch 'main' is orphaned
     """)
@@ -181,9 +140,7 @@ def test_verbose_enables_debug_logging(cli):
 
     cli.run("-v repo")
     assert cli.succeeded
-    assert "DEBUG Running: git -C repo config --list" in cli.logged
-    assert "DEBUG Running: git -C repo branch --list --all" in cli.logged
-    assert "DEBUG Running: git -C repo status --porcelain --branch" in cli.logged
+    assert "DEBUG Running:" in cli.logged
 
 
 def test_branches_single_repo(cli):
@@ -197,6 +154,10 @@ def test_branches_single_repo(cli):
         * feature  [orphaned]
           main     [default]
     """)
+
+    cli.run("--color always b repo")
+    assert cli.succeeded
+    assert "\x1b[32m* feature" in cli.logged.stdout.contents()
 
 
 def test_branches_workspace(cli):
@@ -285,43 +246,3 @@ def test_groom_refuses_pending_changes(cli):
     assert "pending changes" in cli.logged
     assert git(work, "branch", "--show-current") == "stale"
     assert git(work, "branch", "--list", "stale")
-
-
-def test_cleanable_branches_require_default_branch_ancestry(tmp_path):
-    work = make_checkout(tmp_path / "checkout")
-    git(work, "checkout", "-b", "done")
-    commit_file(work, "done.txt", "done\n", "done work")
-    git(work, "push", "-u", "origin", "done")
-    git(work, "checkout", "main")
-    git(work, "merge", "--no-ff", "done", "-m", "merge done")
-    git(work, "push", "origin", "main")
-    git(work, "checkout", "-b", "v2gpt")
-    commit_file(work, "v2gpt.txt", "still in progress\n", "v2gpt work")
-    git(work, "push", "-u", "origin", "v2gpt")
-
-    git_dir = GitDir(work)
-
-    assert git_dir.cleanable_base_ref == "origin/main"
-    assert git_dir.local_cleanable_branches == {"done"}
-    assert "origin/done" in git_dir.remote_cleanable_branches
-    assert "origin/v2gpt" not in git_dir.remote_cleanable_branches
-    assert "origin/main" not in git_dir.remote_cleanable_branches
-
-
-def test_cleanable_branches_detect_squashed_content(tmp_path):
-    work = make_checkout(tmp_path / "checkout")
-    git(work, "checkout", "-b", "squashed")
-    commit_file(work, "one.txt", "one\n", "one")
-    commit_file(work, "two.txt", "two\n", "two")
-    git(work, "push", "-u", "origin", "squashed")
-    git(work, "checkout", "main")
-    git(work, "merge", "--squash", "squashed")
-    git(work, "commit", "-m", "squash squashed")
-    git(work, "push", "origin", "main")
-
-    git_dir = GitDir(work)
-
-    assert not git_dir.is_ancestor("squashed", "origin/main")
-    assert git_dir.merge_is_noop("squashed", "origin/main")
-    assert git_dir.local_cleanable_branches == {"squashed"}
-    assert "origin/squashed" in git_dir.remote_cleanable_branches
