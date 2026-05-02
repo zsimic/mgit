@@ -33,7 +33,6 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "click<9",
     "runez<6",
 ]
 dynamic = ["version"]
