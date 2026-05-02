@@ -48,7 +48,7 @@ def make_repo(path):
     git_init("init", "--initial-branch=main", str(path))
     git(path, "config", "user.email", "tester@example.com")
     git(path, "config", "user.name", "Test User")
-    (path / "README.md").write_text(f"{path.name}\n")
+    (path / "README.md").write_text("Some description\n")
     git(path, "add", "README.md")
     git(path, "commit", "-m", "initial")
 

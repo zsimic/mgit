@@ -67,9 +67,6 @@ class GitRunReport:
         self._problem = []
         self.add(other, progress=progress, note=note, problem=problem)
 
-    def __repr__(self):
-        return f"{len(self._problem)} problems, {len(self._progress)} progress, {len(self._note)} notes"
-
     def __contains__(self, text):
         """
         :param str text: Text to look up
@@ -142,9 +139,6 @@ class GitURL:
         self.name = None
         self.repo = None
 
-    def __repr__(self):
-        return self.url or ""
-
     def _set_name(self, basename):
         """
         :param str|None basename: Set 'self.name' from 'basename' of url
@@ -209,9 +203,6 @@ class GitDir:
         :param Path path: Path to local repo
         """
         self.path = path
-
-    def __repr__(self):
-        return str(self.path)
 
     def report(self, bare=False) -> GitRunReport:
         """
@@ -547,9 +538,6 @@ class GitAspect:
         self._lines = None  # Lines from output of last command run, for troubleshooting
         if auto_load:
             self.reload()
-
-    def __repr__(self):
-        return self._command or self.__class__.__name__
 
     def reload(self):
         for k in self.__class__.__dict__:

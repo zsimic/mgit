@@ -24,16 +24,6 @@ class GitCheckout:
         self.git = GitDir(self.path)
         self.parent = parent
 
-    def __repr__(self):
-        return self.basename
-
-    @runez.cached_property
-    def name(self):
-        """
-        :return str: Basename of local git folder
-        """
-        return self.basename
-
     def header(self, report=None):
         """
         :param GitRunReport|None report: Optional report to show (defaults to self.git.report)
@@ -41,7 +31,7 @@ class GitCheckout:
         """
         report = GitRunReport(report if report is not None else self.git.report())
 
-        result = self.name
+        result = self.basename
         if self.parent and self.parent.name_size:
             result = f"{result:>{self.parent.name_size}}"
 
@@ -179,9 +169,6 @@ class ProjectDir:
         self.name_size: int | None = None
         self.scan()
 
-    def __repr__(self):
-        return self.path.name
-
     def scan(self):
         if (self.path / ".git").is_dir():
             self.checkouts = [GitCheckout(self.path, parent=self)]
@@ -194,9 +181,9 @@ class ProjectDir:
             if not source_path.name.startswith(".") and source_path.is_dir() and (source_path / ".git").is_dir()
         ]
         self.checkouts = sorted(self.checkouts, key=lambda x: x.basename)
-        self.name_size = min(36, max(len(c.name) for c in self.checkouts)) if len(self.checkouts) > 1 else None
+        self.name_size = min(36, max(len(c.basename) for c in self.checkouts)) if len(self.checkouts) > 1 else None
 
-    @runez.cached_property
+    @property
     def header(self):
         result = f"{output.workspace_path(runez.short(self.path))}:"
         if not self.checkouts:
@@ -220,6 +207,6 @@ class ProjectDir:
         show_checkout_names = len(self.checkouts) > 1
         for checkout in self.checkouts:
             if show_checkout_names:
-                print(f"{checkout.name}:")
+                print(f"{checkout.basename}:")
 
             checkout.print_branch_report(indent="  " if show_checkout_names else "")
