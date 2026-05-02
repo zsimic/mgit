@@ -54,11 +54,18 @@ def shortened_message(text, keep_lines=2, separator=" "):
 class GitRunReport:
     """Convenient and easy to compose reporting class"""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        other: GitRunReport | None = None,
+        *,
+        progress: str | None = None,
+        note: str | None = None,
+        problem: str | None = None,
+    ):
         self._progress = []
         self._note = []
         self._problem = []
-        self.add(*args, **kwargs)
+        self.add(other, progress=progress, note=note, problem=problem)
 
     def __repr__(self):
         return f"{len(self._problem)} problems, {len(self._progress)} progress, {len(self._note)} notes"
@@ -104,58 +111,22 @@ class GitRunReport:
 
         return result
 
-    def _add(self, target, items):
-        """
-        :param list target: Where to add 'items'
-        :param items: items to add
-        """
-        if not items:
-            return
+    def add(
+        self,
+        other: GitRunReport | None = None,
+        *,
+        progress: str | None = None,
+        note: str | None = None,
+        problem: str | None = None,
+    ) -> GitRunReport:
+        if other is not None:
+            _add_messages(self._progress, other._progress)
+            _add_messages(self._note, other._note)
+            _add_messages(self._problem, other._problem)
 
-        if isinstance(items, (list, tuple)):
-            for item in items:
-                self._add(target, item)
-
-        elif items not in target:
-            target.append(items)
-
-    def cumulate(self, other):
-        """
-        :param GitRunReport other: Cumulate 'other' with current report
-        :return GitRunReport: Returns self
-        """
-        if isinstance(other, GitRunReport):
-            self._add(self._progress, other._progress)
-            self._add(self._note, other._note)
-            self._add(self._problem, other._problem)
-
-        return self
-
-    def add(self, *args, **kwargs):
-        """
-        :param args: Optional, other reports to cumulate
-        :param kwargs: Optional, attributes to add
-        :return GitRunReport: Returns self
-        """
-        for item in args:
-            self.cumulate(item)
-
-        for key, value in kwargs.items():
-            attribute_name = f"_{key}"
-            target = getattr(self, attribute_name, None)
-            if target is None:
-                raise Exception(f"Internal error: invalid GitRunReport target '{key}'")
-
-            if isinstance(value, (list, tuple)):
-                for item in value:
-                    self.add(**{key: item})
-
-            elif isinstance(value, GitRunReport):
-                self._add(target, getattr(value, attribute_name))
-
-            else:
-                self._add(target, value)
-
+        _add_messages(self._progress, progress)
+        _add_messages(self._note, note)
+        _add_messages(self._problem, problem)
         return self
 
 
@@ -216,6 +187,7 @@ class GitURL:
                 self._set_name(m.group(3))
                 self._set_repo(m.group(2))
                 return
+
             url = f"ssh://{url}"
 
         p = urlparse(url)
@@ -335,7 +307,8 @@ class GitDir:
             return GitRunReport().cant_pull("pending changes")
 
         if self.status.report.has_problems:
-            return GitRunReport(problem=self.status.report).cant_pull()
+            self.status.report.add(problem="<can't pull")
+            return self.status.report
 
         if not self.branches.current:
             return GitRunReport(problem="no remote branch")
@@ -774,19 +747,14 @@ class GitStatus(GitAspect):
         self.modified.append(line)
 
 
-def _report_sorter(enum):
-    """
-    :param tuple(int, str) enum: Tuple from enumerate()
-    :return int: Value to use for sorting messages in this report
-    """
-    _, message = enum
-    if message[0] == "<":
-        return -enum[0]  # '<' makes message sort towards front, but keeping order with other such prefixed messages
+def _add_messages(target: list[str], messages: str | list[str] | None):
+    if messages:
+        if not isinstance(messages, list):
+            messages = [messages]
 
-    if message[0] == ">":
-        return 1000000 + enum[0]  # '>' makes message sort towards end
-
-    return enum[0]  # Non-prefixed message stay where they were
+        for message in messages:
+            if message not in target:
+                target.append(message)
 
 
 def _add_sorted(result, target, color, n, max_chars) -> int:
@@ -817,3 +785,18 @@ def _add_sorted(result, target, color, n, max_chars) -> int:
 
     result.extend(color(s) for s in items)
     return n
+
+
+def _report_sorter(enum):
+    """
+    :param tuple(int, str) enum: Tuple from enumerate()
+    :return int: Value to use for sorting messages in this report
+    """
+    _, message = enum
+    if message[0] == "<":
+        return -enum[0]  # '<' makes message sort towards front, but keeping order with other such prefixed messages
+
+    if message[0] == ">":
+        return 1000000 + enum[0]  # '>' makes message sort towards end
+
+    return enum[0]  # Non-prefixed message stay where they were

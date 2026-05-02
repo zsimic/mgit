@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import pytest
-
 from mgit.git import GitRunReport
 
 
 def check_sorting(given: GitRunReport | str, expected, max_chars=120):
     if not isinstance(given, GitRunReport):
-        given = GitRunReport(problem=given.split())
+        report = GitRunReport()
+        for problem in given.split():
+            report.add(problem=problem)
+
+        given = report
 
     assert isinstance(given, GitRunReport)
     s = given.representation(max_chars=max_chars)
@@ -27,30 +29,24 @@ def test_reporting():
     check_sorting(GitRunReport().cant_pull(), "can't pull")
     check_sorting(GitRunReport().cant_pull("foo"), "can't pull; foo")
 
-    # Adding nothing does nothing
+    # Empty messages are ignored
     check_sorting(GitRunReport().cant_pull().add(), "can't pull")
-    check_sorting(GitRunReport().cant_pull().add(None), "can't pull")
-    check_sorting(GitRunReport().cant_pull().add([]), "can't pull")
-    check_sorting(GitRunReport().cant_pull().add(""), "can't pull")
+    check_sorting(GitRunReport().cant_pull().add(problem=""), "can't pull")
 
-    # Adding bogus things is detected
-    with pytest.raises(Exception, match="Internal error: invalid GitRunReport"):
-        GitRunReport().cant_pull().add(a=1)
-
-    # Cumulating
+    # Adding another report
     r1 = GitRunReport(problem="p1", note="n1")
     r2 = GitRunReport(problem="p2", note="n2")
     check_sorting(GitRunReport(r1).add(r2), "p1; p2; n1; n2")
-
-    # Filtering
-    check_sorting(GitRunReport(r1).add(problem=r2), "p1; p2; n1")
 
     # Problems come ahead of notes
     check_sorting(GitRunReport().add(problem="p1").add(problem="p2").add(problem="p3"), "p1; p2; p3")
     check_sorting(GitRunReport().add(problem="p1", note="n1").add(problem="p2"), "p1; p2; n1")
 
     # Progress comes ahead of notes, but after problems
-    check_sorting(GitRunReport().add(note=("n1", "<n2"), progress=("p1", "p2", "<p3"), problem="prob1"), "prob1; p3; p1; p2; n2; n1")
+    report = GitRunReport(problem="prob1")
+    report.add(note="n1").add(note="<n2")
+    report.add(progress="p1").add(progress="p2").add(progress="<p3")
+    check_sorting(report, "prob1; p3; p1; p2; n2; n1")
 
 
 def test_truncating():
@@ -61,7 +57,16 @@ def test_truncating():
 
     expected = "some problem; some other problem; and yet another; some progress; and some more; one note; two notes; and some really..."
 
-    r = GitRunReport(problem=problems, progress=progress, note=notes)
+    r = GitRunReport()
+    for problem in problems:
+        r.add(problem=problem)
+
+    for progress_message in progress:
+        r.add(progress=progress_message)
+
+    for note in notes:
+        r.add(note=note)
+
     check_sorting(r, expected)
 
     # Really long problem shadowing progress/notes
@@ -71,7 +76,13 @@ def test_truncating():
     progress = ["progress won't show", "since problem too long"]
 
     expected = "some problem; plus some other problem; and yet another; even more problems; and some really really really loooong pro..."
-    r = GitRunReport(problem=problems, progress=progress, note="note won't show either")
+    r = GitRunReport(note="note won't show either")
+    for problem in problems:
+        r.add(problem=problem)
+
+    for progress_message in progress:
+        r.add(progress=progress_message)
+
     check_sorting(r, expected)
 
     check_sorting(r, "some problem;...", max_chars=16)
