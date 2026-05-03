@@ -36,7 +36,7 @@ class GitCheckout:
             result = f"{result:>{self.parent.name_size}}"
 
         result = f"{result}:"
-        branch = output.branch_current(self.git.branches.shortened_current_branch)
+        branch = output.branch_current(self.git.branches.current)
         n = len(self.git.branches.local)
         if n > 1:
             branch += f" +{n - 1}"

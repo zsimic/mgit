@@ -516,9 +516,7 @@ class GitDir:
         return {name for name in self.branches.local if self.is_cleanable_local_branch(name)}
 
     def stale_tracked_local_branches(self) -> list[str]:
-        """
-        :return list[str]: Local branches whose tracked remote branch is gone
-        """
+        """Local branches whose tracked remote branch is gone"""
         result = []
         for branch in sorted(self.local_cleanable_branches):
             remote = self.config.tracking_remote.get(branch)
@@ -570,7 +568,6 @@ class GitBranches(GitAspect):
     """Branch info"""
 
     _command = "branch --list --all"
-    _remote_prefix = "remotes/"
 
     def __init__(self, parent: GitDir, auto_load=True):
         self.current = ""  # Current local branch
@@ -580,18 +577,10 @@ class GitBranches(GitAspect):
         self.report = GitRunReport()
         super().__init__(parent, auto_load=auto_load)
 
-    @property
-    def shortened_current_branch(self) -> str:
-        return str(self.current or "HEAD").replace("feature/", "f/").replace("bugfix/", "b/")
-
     def _process_line(self, line):
-        if not line or len(line) <= 3 or line[0] not in " *" or line[1] != " ":
-            LOG.warning("Internal error: malformed branch --list line: %s", line)
-            return
-
         name = line[2:]
-        if name.startswith(self._remote_prefix):
-            name = name[len(self._remote_prefix) :]
+        if name.startswith("remotes/"):
+            name = name[8:]
             default = None
             try:
                 i = name.index(" -> ")
