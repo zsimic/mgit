@@ -92,14 +92,16 @@ composition currently live on `GitCheckout` and `ProjectDir`.
 `src/mgit/git.py` holds most git-specific behavior:
 
 - `GitRunReport` composes problems, progress, and notes with stable ordering.
-- `GitURL` parses file, HTTPS, SSH, GitHub-style SSH, and unknown URLs. Name
-  and repo fallbacks are sanitized to `"unknown"` rather than leaking `None`.
 - `GitDir` is the main git runner and state facade.
-- `GitDir.default_branch` is now a cached property, resolving `origin/HEAD`
-  first and falling back to `main` or `master`.
-- `GitAspect` is a base class for parsed git-command output.
-- `GitBranches`, `GitConfig`, and `GitStatus` parse branch, config, and status
-  output.
+- `GitRefs` is the repository ref snapshot. It uses `git remote`,
+  `git symbolic-ref`, and `git for-each-ref` to gather current/local branches,
+  remote branches, `origin/HEAD` default-branch information, and exact local
+  branch upstreams. The older `GitBranches`, `GitConfig`, and `GitURL` helpers
+  were removed; clone URL parsing will be redesigned with `clone`.
+- `GitDir.default_branch` resolves `origin/HEAD` first and falls back to
+  `main` or `master`.
+- `GitStatus` parses `git status --porcelain=v2 --branch`, keeping worktree
+  status and structured ahead/behind reporting separate from ref discovery.
 - Cleanable local and remote branches are proven with
   `git merge-base --is-ancestor` against the relevant default branch ref, or by
   using `git merge-tree --write-tree` to prove that merging the branch into the
@@ -114,8 +116,9 @@ composition currently live on `GitCheckout` and `ProjectDir`.
   command slice.
 - `GitRunReport` semantics, especially deduping, ordering, truncation, and
   problem/progress/note separation.
-- `GitStatus` parsing of `git status --porcelain --branch`.
-- `GitBranches` parsing of current/local/remote/default branches.
+- `GitRefs` loading of current/local/remote/default branches and exact branch
+  upstreams.
+- `GitStatus` parsing of `git status --porcelain=v2 --branch`.
 - The guarded `pull()` behavior that refuses when there are pending changes or
   status problems.
 - Direct-child workspace scanning for multi-repo folders.

@@ -152,7 +152,7 @@ Short-name policy:
 
 `main`:
 
-- Resolves the default branch from `origin/HEAD` or remote config.
+- Resolves the default branch from the local `origin/HEAD` symref when present.
 - Falls back to `main`, then `master`, only if no default can be detected.
 - Treats the command name `main` as a user-facing concept, not a literal branch
   name.

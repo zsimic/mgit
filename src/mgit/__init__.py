@@ -36,8 +36,9 @@ class GitCheckout:
             result = f"{result:>{self.parent.name_size}}"
 
         result = f"{result}:"
-        branch = output.branch_current(self.git.branches.current)
-        n = len(self.git.branches.local)
+        refs = self.git.refs
+        branch = output.branch_current(refs.current)
+        n = len(refs.local)
         if n > 1:
             branch += f" +{n - 1}"
 
@@ -65,12 +66,13 @@ class GitCheckout:
         if not show_details:
             return
 
-        if len(self.git.orphan_branches) > 1:
-            orphan_branches = ", ".join(self.git.orphan_branches)
-            print(f"  Orphan branches: {orphan_branches}")
+        orphan_branches = self.git.orphan_branches
+        if len(orphan_branches) > 1:
+            print(f"  Orphan branches: {', '.join(orphan_branches)}")
 
-        self.print_modified(self.git.status.modified, output.index_change, output.worktree_change)
-        self.print_modified(self.git.status.untracked, output.untracked_change)
+        status = self.git.status
+        self.print_modified(status.modified, output.index_change, output.worktree_change)
+        self.print_modified(status.untracked, output.untracked_change)
 
     @staticmethod
     def print_modified(items, state_style, worktree_style=None):
@@ -84,31 +86,35 @@ class GitCheckout:
 
             print(f"  {state} {item[3:]}")
 
-    def branch_annotations(self, name):
+    @staticmethod
+    def branch_annotations(name, default_branch, orphan_branches, is_protected):
         annotations = []
-        if name == self.git.default_branch:
+        if name == default_branch:
             annotations.append(output.branch_default("[default]"))
 
-        if name in self.git.orphan_branches and name not in self.git.special_branches:
+        if name in orphan_branches and not is_protected:
             annotations.append(output.branch_orphaned("[orphaned]"))
 
         return annotations
 
     def branch_lines(self):
-        branches = sorted(self.git.branches.local)
+        refs = self.git.refs
+        branches = sorted(refs.local)
         if not branches:
             return ["  no local branches"]
 
+        default_branch = self.git.default_branch
+        orphan_branches = set(self.git.orphan_branches)
         width = max(len(name) for name in branches)
         lines = []
         for name in branches:
-            is_current = name == self.git.branches.current
+            is_current = name == refs.current
             marker = "*" if is_current else " "
             line = f"{marker} {name:<{width}}"
             if is_current:
                 line = output.branch_current(line)
 
-            annotations = self.branch_annotations(name)
+            annotations = self.branch_annotations(name, default_branch, orphan_branches, self.git.is_protected_branch(name))
             if annotations:
                 line += f"  {' '.join(annotations)}"
 
@@ -121,9 +127,10 @@ class GitCheckout:
             print(f"{indent}{line}")
 
     def current_branch_cleanable_report(self) -> GitRunReport:
-        current = self.git.branches.current
-        if current == self.git.default_branch:
-            return GitRunReport(note=f"already on {self.git.default_branch} branch")
+        current = self.git.refs.current
+        default_branch = self.git.default_branch
+        if current == default_branch:
+            return GitRunReport(note=f"already on {default_branch} branch")
 
         if self.git.is_cleanable_local_branch(current, include_current=True):
             return GitRunReport()
@@ -136,24 +143,29 @@ class GitCheckout:
         if not branches:
             return report.add(note="no stale local branches")
 
+        current = self.git.refs.current
+        base_ref = self.git.cleanable_base_ref
+        attempted_delete = False
         for branch in branches:
-            if branch == self.git.branches.current:
+            if branch == current:
                 report.add(problem=f"can't delete current branch '{branch}'")
                 continue
 
             args = ["branch", "--delete", branch]
-            base_ref = self.git.cleanable_base_ref
             if base_ref and not self.git.is_ancestor(branch, base_ref):
                 args.insert(2, "--force")
 
             _, error = self.git.run_git_command(*args)
+            attempted_delete = True
             if error.has_problems:
                 report.add(problem=f"couldn't delete '{branch}': {error.representation()}")
 
             else:
                 report.add(progress=f"deleted {branch}")
 
-        self.git.reset_cached_properties()
+        if attempted_delete:
+            self.git.clear_cached_state()
+
         return report
 
 

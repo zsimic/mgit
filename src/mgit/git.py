@@ -1,24 +1,34 @@
 from __future__ import annotations
 
-import collections
 import logging
-import re
 import subprocess
 import time
-from pathlib import Path, PurePosixPath
-from urllib.parse import urlparse
+from dataclasses import dataclass, field
+from functools import cached_property
+from typing import Mapping, TYPE_CHECKING
 
 import runez
 
 from mgit import output
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 LOG = logging.getLogger(__name__)
 FETCH_AGE_FILES = ("FETCH_HEAD", "HEAD")
 FRESHNESS_THRESHOLD = 12 * runez.date.SECONDS_IN_ONE_HOUR
 GIT_ERROR_PREFIXES = {"git", "error", "fatal"}
 
-RE_GITHUB_SSH = re.compile(r"^git@([^:]+):(\w+)/([^/]+)$")
-RE_BRANCH_STATUS = re.compile(r"^## (.+)\.\.\.(([^/]+)/)?([^ ]+)\s*(\[(.+)])?$")
+REMOTE_REF_PREFIX = "refs/remotes/"
+LOCAL_REF_PREFIX = "refs/heads/"
+_CACHED_GIT_STATE = (
+    "default_branch",
+    "status",
+    "refs",
+    "orphan_branches",
+    "cleanable_base_ref",
+    "local_cleanable_branches",
+)
 
 
 def shortened_message(text, keep_lines=2, separator=" "):
@@ -127,72 +137,135 @@ class GitRunReport:
         return self
 
 
-class GitURL:
-    """Parse and extract meaningful info from a git repo url"""
+@dataclass(frozen=True)
+class BranchUpstream:
+    """Configured upstream for a local branch."""
 
-    def __init__(self):
-        self.url = None
-        self.protocol = None
-        self.hostname = None
-        self.relative_path = None
-        self.username = None
-        self.name = None
-        self.repo = None
+    remote: str
+    branch: str
+    ref: str
+    short_ref: str
 
-    def _set_name(self, basename):
-        """
-        :param str|None basename: Set 'self.name' from 'basename' of url
-        """
-        if basename and basename.endswith(".git"):
-            basename = basename[:-4]
 
-        self.name = basename or "unknown"
+@dataclass(frozen=True)
+class GitRefs:
+    """Repository ref and upstream snapshot."""
 
-    def _set_repo(self, dirname):
-        """
-        :param str|None dirname: Set 'self.repo' from 'dirname' of url
-        """
-        if dirname and "/" in dirname:
-            dirname = PurePosixPath(dirname).name
+    current: str = ""
+    detached: bool = False
+    local: frozenset[str] = frozenset()
+    remotes: frozenset[str] = frozenset()
+    by_remote: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    default_branches: Mapping[str, str] = field(default_factory=dict)
+    upstreams: Mapping[str, BranchUpstream] = field(default_factory=dict)
 
-        self.repo = dirname or "unknown"
+    @classmethod
+    def load(cls, parent: GitDir) -> GitRefs:
+        current, detached = parent._current_branch()
+        remotes = parent._remote_names()
+        local: set[str] = set()
+        by_remote: dict[str, set[str]] = {}
+        default_branches: dict[str, str] = {}
+        upstreams: dict[str, BranchUpstream] = {}
 
-    def set(self, url):
-        """
-        :param str url: Set fields of this object, extracted from git repo 'url'
-        """
-        self.url = url or ""
-        if not url:
-            self.protocol = "unknown"
-            self.hostname = "unknown"
-            self.relative_path = ""
-            self.username = None
-            self._set_name(None)
-            self._set_repo(None)
-            return
+        output, error = parent.run_git_command(
+            "for-each-ref",
+            "--format=%(refname)%09%(HEAD)%09%(upstream:short)%09%(upstream:remotename)%09%(upstream:remoteref)%09%(symref)",
+            "refs/heads",
+            "refs/remotes",
+        )
+        if error.has_problems:
+            LOG.debug("Could not inspect git refs: [%s]", error.representation())
 
-        if url.startswith("git@"):
-            m = RE_GITHUB_SSH.match(url)
-            if m:
-                self.protocol = "ssh"
-                self.hostname = m.group(1) or "unknown"
-                self.relative_path = f"{m.group(2)}/{m.group(3)}"
-                self.username = "git"
-                self._set_name(m.group(3))
-                self._set_repo(m.group(2))
-                return
+        for line in output.splitlines():
+            refname, marker, upstream_short, upstream_remote, upstream_ref, symref = _padded_fields(line, 6)
+            if refname.startswith(LOCAL_REF_PREFIX):
+                name = refname[len(LOCAL_REF_PREFIX) :]
+                local.add(name)
+                if marker == "*":
+                    current = name
+                    detached = False
 
-            url = f"ssh://{url}"
+                upstream = _branch_upstream(upstream_remote, upstream_ref, upstream_short)
+                if upstream:
+                    upstreams[name] = upstream
 
-        p = urlparse(url)
-        self.protocol = p.scheme or "file"
-        self.hostname = p.hostname or "local"
-        self.relative_path = p.path.rstrip("/")
-        self.username = p.username
-        url_path = PurePosixPath(self.relative_path)
-        parent = "" if url_path.parent == PurePosixPath(".") else str(url_path.parent)
-        self._set_name(url_path.name)
-        self._set_repo(parent)
+            elif refname.startswith(REMOTE_REF_PREFIX):
+                remote, branch = _remote_ref_parts(refname)
+                if not remote or not branch:
+                    continue
+
+                if branch == "HEAD":
+                    default = _remote_default_branch(remote, symref)
+                    if default:
+                        default_branches[remote] = default
+
+                    continue
+
+                by_remote.setdefault(remote, set()).add(branch)
+
+        return cls(
+            current=current,
+            detached=detached,
+            local=frozenset(local),
+            remotes=remotes,
+            by_remote={name: frozenset(branches) for name, branches in by_remote.items()},
+            default_branches=default_branches,
+            upstreams=upstreams,
+        )
+
+    def has_remote(self, remote: str) -> bool:
+        return remote in self.remotes
+
+    def has_remote_branch(self, remote: str, branch: str) -> bool:
+        return branch in self.by_remote.get(remote, frozenset())
+
+    def upstream_gone(self, branch: str) -> bool:
+        upstream = self.upstreams.get(branch)
+        return bool(upstream and not self.has_remote_branch(upstream.remote, upstream.branch))
+
+
+def _padded_fields(line: str, count: int) -> list[str]:
+    fields = line.split("\t")
+    if len(fields) < count:
+        fields.extend("" for _ in range(count - len(fields)))
+
+    return fields[:count]
+
+
+def _remote_ref_parts(refname: str) -> tuple[str, str]:
+    name = refname[len(REMOTE_REF_PREFIX) :]
+    remote, _, branch = name.partition("/")
+    return remote, branch
+
+
+def _remote_default_branch(remote: str, symref: str) -> str:
+    prefix = f"{REMOTE_REF_PREFIX}{remote}/"
+    if symref.startswith(prefix):
+        return symref[len(prefix) :]
+
+    return ""
+
+
+def _branch_upstream(remote: str, ref: str, short_ref: str) -> BranchUpstream | None:
+    if not remote or not ref:
+        return None
+
+    branch = ref[len(LOCAL_REF_PREFIX) :] if ref.startswith(LOCAL_REF_PREFIX) else ref
+    return BranchUpstream(remote=remote, branch=branch, ref=ref, short_ref=short_ref)
+
+
+def _ahead_behind(value: str) -> tuple[int, int]:
+    ahead = 0
+    behind = 0
+    for item in value.split():
+        if item.startswith("+"):
+            ahead = int(item[1:] or "0")
+
+        elif item.startswith("-"):
+            behind = int(item[1:] or "0")
+
+    return ahead, behind
 
 
 class GitDir:
@@ -210,8 +283,9 @@ class GitDir:
         :return GitRunReport: General report on current checkout state
         """
         result = GitRunReport()
+        refs = self.refs
 
-        if not self.config.remotes:
+        if not refs.remotes:
             result.add(problem="no remotes")
 
         if bare:
@@ -222,11 +296,11 @@ class GitDir:
             result.add(note=f"last fetch {runez.represented_duration(age)} ago")
 
         orphan_branches = self.orphan_branches
-        if self.branches.current in orphan_branches:
+        if refs.current in orphan_branches:
             # Current is no more on its remote (should possibly checkout another branch and cleanup, or push)
             orphan_branches = orphan_branches[:]
-            orphan_branches.remove(self.branches.current)
-            result.add(note=f"current branch '{self.branches.current}' is orphaned")
+            orphan_branches.remove(refs.current)
+            result.add(note=f"current branch '{refs.current}' is orphaned")
 
         cleanable = sorted(self.local_cleanable_branches)
         if len(cleanable) == 1:
@@ -235,7 +309,9 @@ class GitDir:
         elif cleanable:
             result.add(note=f"{runez.plural(cleanable, 'local branch')} can be pruned")
 
-        result.add(self.branches.report)
+        if refs.detached:
+            result.add(note="HEAD detached")
+
         return result
 
     def run_git_command(self, *args) -> tuple[str, GitRunReport]:
@@ -255,9 +331,29 @@ class GitDir:
 
         return output, GitRunReport(problem=shortened_message(error))
 
-    def reset_cached_properties(self):
-        """Reset cached properties that may have changed after a fetch or pull"""
-        runez.cached_property.reset(self)
+    def clear_cached_state(self) -> None:
+        """Discard cached git state after a command may have changed refs or worktree state."""
+        for name in _CACHED_GIT_STATE:
+            self.__dict__.pop(name, None)
+
+    def _current_branch(self) -> tuple[str, bool]:
+        output, error = self.run_git_command("symbolic-ref", "--quiet", "--short", "HEAD")
+        if not error.has_problems:
+            return output.strip(), False
+
+        output, error = self.run_git_command("rev-parse", "--verify", "--quiet", "HEAD")
+        if not error.has_problems and output.strip():
+            return "HEAD", True
+
+        return "", False
+
+    def _remote_names(self) -> frozenset[str]:
+        output, error = self.run_git_command("remote")
+        if error.has_problems:
+            LOG.debug("Could not inspect git remotes: [%s]", error.representation())
+            return frozenset()
+
+        return frozenset(line.strip() for line in output.splitlines() if line.strip())
 
     def fetch(self, age: int | None = 30) -> GitRunReport:
         """
@@ -270,7 +366,7 @@ class GitDir:
                 return GitRunReport()
 
         _, error = self.run_git_command("fetch", "--all", "--prune")
-        self.reset_cached_properties()
+        self.clear_cached_state()
         return error
 
     def checkout_default_branch(self) -> GitRunReport:
@@ -278,11 +374,11 @@ class GitDir:
         :return GitRunReport: Checkout report
         """
         branch = self.default_branch
-        if self.branches.current == branch:
+        if self.refs.current == branch:
             return GitRunReport()
 
         _, error = self.run_git_command("checkout", branch)
-        self.reset_cached_properties()
+        self.clear_cached_state()
         if error.has_problems:
             return GitRunReport(error).add(problem="<can't checkout default branch")
 
@@ -294,25 +390,27 @@ class GitDir:
         if report.has_problems:
             return report.cant_pull()
 
-        if self.status.modified:
+        status = self.status
+        if status.modified:
             return GitRunReport().cant_pull("pending changes")
 
-        if self.status.report.has_problems:
-            self.status.report.add(problem="<can't pull")
-            return self.status.report
+        if status.report.has_problems:
+            status.report.add(problem="<can't pull")
+            return status.report
 
-        if not self.branches.current:
+        refs = self.refs
+        if not refs.current:
             return GitRunReport(problem="no remote branch")
 
-        if self.branches.current == "HEAD" and self.branches.current in self.orphan_branches:
+        if refs.detached:
             # Untracked HEAD
             output, error = self.run_git_command("checkout", self.default_branch)
+            self.clear_cached_state()
             if error.has_problems:
-                self.reset_cached_properties()
                 return error
 
         output, error = self.run_git_command("pull", "--rebase")
-        self.reset_cached_properties()
+        self.clear_cached_state()
 
         if error.has_problems:
             if "following untracked" in error:
@@ -339,7 +437,7 @@ class GitDir:
         output = lines[0] if lines else "no output"
         return GitRunReport(note=f"pull may have been unsuccessful ({output})")
 
-    @runez.cached_property
+    @property
     def age(self) -> int | None:
         """
         :return int|None: Elapsed time in seconds since last fetch
@@ -352,92 +450,85 @@ class GitDir:
             except OSError:
                 pass
 
-    @runez.cached_property
+    @cached_property
     def default_branch(self) -> str:
         """
         :param mgit.git.GitDir git: Checkout model
         :return str|None: Default branch name
         """
-        branch = self.branches.default_branches.get("origin")
+        refs = self.refs
+        branch = refs.default_branches.get("origin")
         if branch:
             return branch
 
-        origin_branches = self.branches.by_remote.get("origin", set())
+        origin_branches = refs.by_remote.get("origin", set())
         for candidate in ("main", "master"):
-            if candidate in self.branches.local or candidate in origin_branches:
+            if candidate in refs.local or candidate in origin_branches:
                 return candidate
 
         return "main"
 
-    @runez.cached_property
+    @cached_property
     def status(self) -> GitStatus:
         """
-        :return GitStatus: Parsed info from 'git status --porcelain --branch'
+        :return GitStatus: Parsed info from 'git status --porcelain=v2 --branch'
         """
         return GitStatus(self)
 
-    @runez.cached_property
-    def config(self) -> GitConfig:
-        """
-        :return GitConfig: Parsed info from 'git config --list'
-        """
-        return GitConfig(self)
+    @cached_property
+    def refs(self) -> GitRefs:
+        return GitRefs.load(self)
 
-    @runez.cached_property
-    def branches(self) -> GitBranches:
-        """
-        :return GitConfig: Parsed info from 'git branch --list --all'
-        """
-        return GitBranches(self)
-
-    @runez.cached_property
+    @cached_property
     def orphan_branches(self) -> list[str]:
         """
         :return list(str): Local branch names that were deleted on their corresponding remote
         """
         result = []
-        for name in self.branches.local:
-            remote = self.config.tracking_remote.get(name)
-            if not remote or remote not in self.branches.by_remote or name not in self.branches.by_remote[remote]:
+        refs = self.refs
+        for name in sorted(refs.local):
+            upstream = refs.upstreams.get(name)
+            if not upstream or not refs.has_remote_branch(upstream.remote, upstream.branch):
                 result.append(name)
 
         return result
 
-    @runez.cached_property
-    def special_branches(self) -> set[str]:
-        result = set(self.branches.default_branches.values())
-        result.add("HEAD")
-        result.add("main")
-        result.add("master")
-        return result
+    def is_protected_branch(self, name: str) -> bool:
+        """
+        :param str name: Local branch name
+        :return bool: True if branch should not be cleaned or reported as orphaned
+        """
+        return bool(name and (name == self.default_branch or name in self.refs.default_branches.values()))
 
-    def _default_ref_for_remote(self, remote: str) -> str | None:
+    def _default_ref_for_remote(self, remote: str, refs: GitRefs | None = None) -> str | None:
         """
         :param str remote: Remote name
         :return str|None: Remote ref for the remote's default branch, if known locally
         """
-        remote_branches = self.branches.by_remote.get(remote)
+        refs = refs or self.refs
+        remote_branches = refs.by_remote.get(remote)
         if not remote_branches:
             return None
 
-        candidates = [self.branches.default_branches.get(remote), self.default_branch, "main", "master"]
+        candidates = [refs.default_branches.get(remote), self.default_branch, "main", "master"]
         for branch in candidates:
             if branch and branch in remote_branches:
                 return f"{remote}/{branch}"
 
         return None
 
-    @runez.cached_property
+    @cached_property
     def cleanable_base_ref(self) -> str | None:
         """
         :return str|None: Ref that cleanup candidates must already be merged into
         """
-        if "origin" in self.config.remotes:
-            remote_ref = self._default_ref_for_remote("origin")
+        refs = self.refs
+        if refs.has_remote("origin"):
+            remote_ref = self._default_ref_for_remote("origin", refs=refs)
             if remote_ref:
                 return remote_ref
 
-        if self.default_branch in self.branches.local:
+        if self.default_branch in refs.local:
             return self.default_branch
 
         return None
@@ -500,155 +591,47 @@ class GitDir:
         :return bool: True if local branch is safe to clean
         """
         base_ref = self.cleanable_base_ref
+        refs = self.refs
         return bool(
             base_ref
             and name
-            and name not in self.special_branches
-            and (include_current or name != self.branches.current)
+            and not self.is_protected_branch(name)
+            and (include_current or name != refs.current)
             and self.is_cleanable_merged(name, base_ref)
         )
 
-    @runez.cached_property
+    @cached_property
     def local_cleanable_branches(self) -> set[str]:
         """
         :return set: Local branches that can be cleaned
         """
-        return {name for name in self.branches.local if self.is_cleanable_local_branch(name)}
+        return {name for name in self.refs.local if self.is_cleanable_local_branch(name)}
 
     def stale_tracked_local_branches(self) -> list[str]:
         """Local branches whose tracked remote branch is gone"""
         result = []
+        refs = self.refs
         for branch in sorted(self.local_cleanable_branches):
-            remote = self.config.tracking_remote.get(branch)
-            if remote and branch not in self.branches.by_remote.get(remote, set()):
+            if refs.upstream_gone(branch):
                 result.append(branch)
 
         return result
 
 
-class GitAspect:
-    """Common ancestor for info gathered from git"""
-
-    _command = ""
-
-    def __init__(self, parent: GitDir, auto_load=True):
-        self._parent = parent
-        self._lines = None  # Lines from output of last command run, for troubleshooting
-        if auto_load:
-            self.reload()
-
-    def reload(self):
-        for k in self.__class__.__dict__:
-            if k.startswith("_"):
-                continue
-
-            v = getattr(self.__class__, k, None)
-            if v is None or isinstance(v, (property, runez.cached_property)) or callable(v):
-                continue
-
-            v = collections.defaultdict(v.default_factory) if isinstance(v, collections.defaultdict) else v.__class__()
-            setattr(self, k, v)
-
-        if not self._command:
-            return
-
-        output, error = self._parent.run_git_command(*self._command.split())
-        if error.has_problems:
-            LOG.debug("Prev git command had error output: [%s]", error.representation())
-
-        self._lines = [line for line in output.split("\n") if line.strip()]
-        for line in self._lines:
-            self._process_line(line)
-
-    def _process_line(self, line: str) -> None:
-        """Process `line`"""
-
-
-class GitBranches(GitAspect):
-    """Branch info"""
-
-    _command = "branch --list --all"
-
-    def __init__(self, parent: GitDir, auto_load=True):
-        self.current = ""  # Current local branch
-        self.local: set[str] = set()  # Local branches
-        self.by_remote = collections.defaultdict(set)  # Branches by remote (usually origin and optionally upstream)
-        self.default_branches: dict[str, str] = {}  # Default branch per remote
-        self.report = GitRunReport()
-        super().__init__(parent, auto_load=auto_load)
-
-    def _process_line(self, line):
-        name = line[2:]
-        if name.startswith("remotes/"):
-            name = name[8:]
-            default = None
-            try:
-                i = name.index(" -> ")
-                first = name[:i]
-                if first.endswith("/HEAD"):
-                    default = name = name[i + 4 :]
-
-            except ValueError:
-                pass
-
-            remote, _, name = name.partition("/")
-            self.by_remote[remote].add(name)
-            if default:
-                self.default_branches[remote] = name
-
-            return
-
-        if name.startswith("("):
-            name = name[1:]
-            if name.endswith(")"):
-                name = name[:-1]
-
-            name, _, problem = name.partition(" ")
-            self.report.add(note=f"{name} {problem}")
-
-        self.local.add(name)
-        if line[0] == "*":
-            self.current = name
-
-
-class GitConfig(GitAspect):
-    """Remote info"""
-
-    _command = "config --list"
-
-    def __init__(self, parent, auto_load=True):
-        self.origin = GitURL()  # URL to remote called 'origin'
-        self.remotes = {}  # GitURL by remote name map
-        self.tracking_remote = {}  # Remotes that each local branch is tracking
-        self.content = {}
-        super().__init__(parent, auto_load=auto_load)
-
-    def _process_line(self, line):
-        k, _, v = line.partition("=")
-        self.content[k] = v
-        if k.startswith("remote."):
-            if k.endswith(".url"):
-                k = k[7:-4]
-                url = GitURL()
-                url.set(v)
-                self.remotes[k] = url
-                if k == "origin":
-                    self.origin = url
-
-        elif k.startswith("branch.") and k.endswith(".remote"):
-            self.tracking_remote[k[7:-7]] = v
-
-
-class GitStatus(GitAspect):
+class GitStatus:
     """Currently modified files"""
 
-    _command = "status --porcelain --branch"
-
-    def __init__(self, parent, auto_load=True):
+    def __init__(self, parent: GitDir):
+        self._parent = parent
+        self._lines = []
+        self.head = ""
+        self.upstream = ""
+        self.ahead = 0
+        self.behind = 0
         self.modified = []
         self.untracked = []
         self.report = GitRunReport()
-        super().__init__(parent, auto_load=auto_load)
+        self.reload()
 
     @property
     def freshness(self) -> str:
@@ -685,43 +668,82 @@ class GitStatus(GitAspect):
 
         return report
 
+    def reload(self):
+        self._lines = []
+        self.head = ""
+        self.upstream = ""
+        self.ahead = 0
+        self.behind = 0
+        self.modified = []
+        self.untracked = []
+        self.report = GitRunReport()
+
+        output, error = self._parent.run_git_command("status", "--porcelain=v2", "--branch")
+        if error.has_problems:
+            LOG.debug("Could not inspect git status: [%s]", error.representation())
+
+        self._lines = [line for line in output.splitlines() if line.strip()]
+        for line in self._lines:
+            self._process_line(line)
+
+        self._add_ref_report()
+
     def _process_line(self, line):
-        if line[0] == "#":
-            if "..." not in line:
-                return
-
-            m = RE_BRANCH_STATUS.match(line)
-            if not m:
-                LOG.warning("Unrecognised git status line: '%s'", line)
-                return
-
-            text = str(m.group(6) or "")  # behind, ahead, or gone
-            if not text:
-                return
-
-            for message in text.split(","):
-                message = message.strip()
-                if "gone" in message:
-                    line = line.lower()
-                    if "no commits yet" in line or "initial commit on" in line:
-                        self.report.add(note="no commits yet")
-
-                    else:
-                        self.report.add(problem="remote branch gone")
-
-                elif "ahead" in message:
-                    self.report.add(problem=message)
-
-                else:
-                    self.report.add(note=message)
-
+        if line.startswith("# "):
+            self._process_branch_header(line[2:])
             return
 
-        if line[0] == "?":
-            self.untracked.append(line)
+        prefix = line[0]
+        if prefix == "?":
+            self.untracked.append(f"?? {line[2:]}")
             return
 
-        self.modified.append(line)
+        if prefix == "1":
+            self._add_modified(line, maxsplit=8)
+            return
+
+        if prefix == "2":
+            self._add_modified(line, maxsplit=9)
+            return
+
+        if prefix == "u":
+            self._add_modified(line, maxsplit=10)
+
+    def _process_branch_header(self, line: str) -> None:
+        key, _, value = line.partition(" ")
+        if key == "branch.head":
+            self.head = value
+            if value == "(detached)":
+                self.report.add(note="HEAD detached")
+
+        elif key == "branch.upstream":
+            self.upstream = value
+
+        elif key == "branch.ab":
+            ahead, behind = _ahead_behind(value)
+            if ahead:
+                self.ahead = ahead
+                self.report.add(problem=f"ahead {ahead}")
+
+            if behind:
+                self.behind = behind
+                self.report.add(note=f"behind {behind}")
+
+    def _add_modified(self, line: str, maxsplit: int) -> None:
+        fields = line.split(" ", maxsplit)
+        if len(fields) <= maxsplit:
+            LOG.warning("Unrecognised git status line: '%s'", line)
+            return
+
+        state = fields[1].replace(".", " ")
+        path = fields[-1].split("\t", 1)[0]
+        self.modified.append(f"{state} {path}")
+
+    def _add_ref_report(self) -> None:
+        refs = self._parent.refs
+        current = refs.current
+        if current and refs.upstream_gone(current):
+            self.report.add(problem="remote branch gone")
 
 
 def _add_messages(target: list[str], messages: str | list[str] | None):
