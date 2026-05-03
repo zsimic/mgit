@@ -109,6 +109,24 @@ def test_cli_arg_normalization():
     assert normalized_cli_args(["--color", "always", "g", "checkout"]) == ["--color", "always", "groom", "checkout"]
 
 
+def test_abort_reporting(cli):
+    cli.run("missing")
+    assert cli.failed
+    assert cli.exit_code == 1
+    assert "No folder" in cli.logged
+
+    Path("folder").mkdir()
+    cli.run("main folder")
+    assert cli.failed
+    assert cli.exit_code == 2
+    assert "main only supports one git checkout" in cli.logged
+
+    cli.run("folder")
+    assert cli.failed
+    assert cli.exit_code == 1
+    assert "no git folders" in cli.logged
+
+
 def test_workspace_status_alignment(cli):
     make_repo(Path("my-workspace/short"))
     make_repo(Path("my-workspace/longer-name"))
@@ -164,10 +182,6 @@ def test_branches_single_repo(cli):
           main     [default]
     """)
 
-    cli.run("--color always b repo")
-    assert cli.succeeded
-    assert "\x1b[32m* feature" in cli.logged.stdout.contents()
-
 
 def test_branches_workspace(cli):
     make_repo(Path("workspace/one"))
@@ -206,6 +220,11 @@ def test_groom_deletes_stale_tracked_branch(cli):
     assert "deleted stale" in cli.logged
     assert git(work, "branch", "--show-current") == "main"
     assert not git(work, "branch", "--list", "stale")
+
+    # Groom a 2nd time is a no-op
+    cli.run("g checkout/work")
+    assert cli.succeeded
+    assert cli.logged.stdout.contents().strip() == "work: [main] up to date  already on main branch; no stale local branches"
 
 
 def test_groom_preserves_unmerged_stale_tracked_branch(cli):

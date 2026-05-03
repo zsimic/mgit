@@ -51,9 +51,6 @@ still deferred.
 
 `src/mgit/cli.py` owns the argparse entry point and command classes:
 
-- `GlobalFlags` captures top-level verbosity and color policy separately from
-  command-specific arguments.
-- `CliInvocation` captures the selected parsed command object and global flags.
 - `CliCommand` models shared command behavior, while `FolderTargetCommand`
   supplies the common optional `folder` argument and folder normalization.
   Current-folder requests climb to a parent git checkout, then fall back to the
@@ -64,7 +61,7 @@ still deferred.
   exactly one checkout: main and groom.
 - `StatusCommand`, `FetchCommand`, and `PullCommand` spell out their run
   behavior directly rather than routing through shared fetch/pull flags.
-- `parse_cli_args()` normalizes argv before parsing: it inserts `status` when
+- `normalized_cli_args()` normalizes argv before parsing: it inserts `status` when
   the first non-global token is not a command, expands short names such as `f`
   to `fetch`, and then lets the top-level argparse parser dispatch through real
   subparsers.

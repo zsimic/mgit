@@ -1,34 +1,19 @@
 from __future__ import annotations
 
 import argparse
-import inspect
 import logging
 import re
 import sys
-from dataclasses import dataclass
+from abc import ABC, abstractmethod
 from importlib.metadata import version
 from pathlib import Path
-from typing import ClassVar
 
 import runez
 
-from mgit import GitCheckout, ProjectDir
+from mgit import GitCheckout, ProjectDir, Reporter
 from mgit.git import GitRunReport
-from mgit.output import color_context
 
 FETCH_COOLDOWN_SECONDS = 30
-
-
-@dataclass(frozen=True)
-class GlobalFlags:
-    verbose: bool = False
-    color: str = "auto"
-
-
-@dataclass(frozen=True)
-class CliInvocation:
-    flags: GlobalFlags
-    command: CliCommand
 
 
 def command_name_from_class(cls: type) -> str:
@@ -36,10 +21,10 @@ def command_name_from_class(cls: type) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "-", name).lower()
 
 
-class CliCommand:
+class CliCommand(ABC):
     """API for all CLI commands."""
 
-    short_name: ClassVar[str | None] = None
+    short_name: str | None = None
 
     @classmethod
     def command_name(cls) -> str:
@@ -47,24 +32,29 @@ class CliCommand:
 
     @classmethod
     def summary(cls) -> str:
-        doc = inspect.getdoc(cls) or ""
-        return doc.splitlines()[0] if doc else ""
+        """Every command class must have a summary (intentional crash otherwise)"""
+        assert cls.__doc__  # noqa: S101, internal error
+        return cls.__doc__.splitlines()[0]
 
-    @classmethod
+    @classmethod  # noqa: B027 - optional hook
     def add_arguments(cls, _parser: argparse.ArgumentParser) -> None:
         """Add command-specific arguments."""
 
     @classmethod
+    @abstractmethod
     def from_namespace(cls, _namespace: argparse.Namespace) -> CliCommand:
-        return cls()
+        """Create a command from parsed CLI arguments."""
 
+    @abstractmethod
     def run(self) -> int:
-        raise NotImplementedError
+        """Run the command and return a process exit code."""
 
 
-@dataclass(frozen=True)
 class FolderTargetCommand(CliCommand):
     folder: Path = Path(".")
+
+    def __init__(self, folder: Path):
+        self.folder = folder
 
     @classmethod
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
@@ -80,31 +70,31 @@ class FolderTargetCommand(CliCommand):
         if folder == current:
             for candidate in (current, *current.parents):
                 if (candidate / ".git").is_dir():
-                    folder = candidate
-                    break
+                    return candidate
 
-        if not folder.is_dir():
-            runez.abort(f"No folder '{runez.short(folder)}'")
-
+        Reporter.abort_if(not folder.is_dir(), f"No folder '{runez.short(folder)}'")
         return folder
 
 
-@dataclass(frozen=True)
 class ProjectCommand(FolderTargetCommand):
     """Command operating on a project directory or single checkout."""
 
     def get_project_dir(self) -> ProjectDir:
         return ProjectDir(self.actual_folder())
 
+    def status_report(self, checkout: GitCheckout, report: GitRunReport) -> GitRunReport:
+        if not report.has_problems:
+            report.add(checkout.git.report())
 
-@dataclass(frozen=True)
+        return report
+
+
 class SingleCheckoutCommand(FolderTargetCommand):
     """Command operating on one git checkout."""
 
     def get_git_checkout(self) -> GitCheckout:
         folder = self.actual_folder()
-        if not (folder / ".git").is_dir():
-            runez.abort(f"{self.command_name()} only supports one git checkout", code=2)
+        Reporter.abort_if(not (folder / ".git").is_dir(), f"{self.command_name()} only supports one git checkout", exit_code=2)
 
         return GitCheckout(folder)
 
@@ -114,9 +104,9 @@ COMMAND_BY_TOKEN: dict[str, type[CliCommand]] = {}
 
 
 def register_cli_command(name: str | None, command: type[CliCommand]):
-    if name:
-        assert name not in COMMAND_BY_TOKEN  # noqa: S101, this would be an internal error, detected at test time
-        COMMAND_BY_TOKEN[name] = command
+    assert name  # noqa: S101, this would be an internal error, detected at test time
+    assert name not in COMMAND_BY_TOKEN  # noqa: S101
+    COMMAND_BY_TOKEN[name] = command
 
 
 def cli_command(command: type[CliCommand]) -> type[CliCommand]:
@@ -149,7 +139,7 @@ class FetchCommand(ProjectCommand):
         reports = {}
         for checkout in project_dir.checkouts:
             fetch_report = checkout.git.fetch(age=FETCH_COOLDOWN_SECONDS)
-            reports[checkout] = checkout.status_report(fetch_report)
+            reports[checkout] = self.status_report(checkout, fetch_report)
 
         project_dir.print_status(reports)
         return 0
@@ -166,7 +156,7 @@ class PullCommand(ProjectCommand):
         reports = {}
         for checkout in project_dir.checkouts:
             pull_report = checkout.git.pull()
-            reports[checkout] = checkout.status_report(pull_report)
+            reports[checkout] = self.status_report(checkout, pull_report)
 
         project_dir.print_status(reports)
         return 0
@@ -247,10 +237,6 @@ class GroomCommand(SingleCheckoutCommand):
         return 1 if report.has_problems else 0
 
 
-def command_for(token: str) -> type[CliCommand] | None:
-    return COMMAND_BY_TOKEN.get(token)
-
-
 class CommandHelpFormatter(argparse.HelpFormatter):
     """Show subcommands as a compact command list."""
 
@@ -276,30 +262,12 @@ def add_command_parser(subparsers: argparse._SubParsersAction, command: type[Cli
     parser.set_defaults(command_type=command)
 
 
-def build_parser():
-    parser = argparse.ArgumentParser(
-        prog="mgit",
-        usage="mgit [GLOBAL_OPTIONS] [COMMAND] [ARGS...]",
-        description="Inspect and update git checkouts.",
-        formatter_class=CommandHelpFormatter,
-    )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging.")
-    parser.add_argument("--color", choices=("auto", "always", "never"), default="auto", help="Control ANSI color output.")
-    parser.add_argument("--version", action="version", version=f"mgit {version('mgit')}")
-    subparsers = parser.add_subparsers(dest="command", title="Commands", metavar="COMMAND")
-    subparsers.required = True
-    for command in COMMANDS:
-        add_command_parser(subparsers, command)
-
-    return parser
-
-
 def split_global_args(args: list[str]) -> tuple[list[str], list[str]]:
     global_args = []
     i = 0
     while i < len(args):
         arg = args[i]
-        if arg in {"-h", "--help", "-v", "--verbose", "--version"}:
+        if arg in {"--help", "-v", "--verbose", "--version"}:
             global_args.append(arg)
             i += 1
             continue
@@ -332,7 +300,7 @@ def normalized_cli_args(args: list[str]) -> list[str]:
         return global_args
 
     if command_args:
-        command = command_for(command_args[0])
+        command = COMMAND_BY_TOKEN.get(command_args[0])
         if command:
             command_args[0] = command.command_name()
 
@@ -345,29 +313,24 @@ def normalized_cli_args(args: list[str]) -> list[str]:
     return global_args + command_args
 
 
-def parse_cli_args(argv=None, parser=None):
-    args = list(sys.argv[1:] if argv is None else argv)
-    parser = parser or build_parser()
-    namespace = parser.parse_args(normalized_cli_args(args))
-    command = namespace.command_type.from_namespace(namespace)
-    return CliInvocation(
-        flags=GlobalFlags(verbose=namespace.verbose, color=namespace.color),
-        command=command,
+def main():
+    parser = argparse.ArgumentParser(
+        prog="mgit",
+        usage="mgit [GLOBAL_OPTIONS] [COMMAND] [ARGS...]",
+        description="Inspect and update git checkouts.",
+        formatter_class=CommandHelpFormatter,
     )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging.")
+    parser.add_argument("--color", choices=("auto", "always", "never"), default="auto", help="Control ANSI color output.")
+    parser.add_argument("--version", action="version", version=f"mgit {version('mgit')}")
+    subparsers = parser.add_subparsers(dest="command", title="Commands", metavar="COMMAND")
+    subparsers.required = True
+    for command in COMMANDS:
+        add_command_parser(subparsers, command)
 
-
-def configure_runtime(verbose=False):
-    runez.system.AbortException = SystemExit
-    runez.date.DEFAULT_DURATION_SPAN = -2
-    runez.log.setup(debug=verbose, level=logging.INFO, console_format="%(levelname)s %(message)s", locations=None)
-
-
-def run_invocation(invocation):
-    configure_runtime(invocation.flags.verbose)
-    return invocation.command.run()
-
-
-def main(argv=None):
-    invocation = parse_cli_args(argv)
-    with color_context(invocation.flags.color):
-        return run_invocation(invocation)
+    namespace = parser.parse_args(normalized_cli_args(sys.argv[1:]))
+    command = namespace.command_type.from_namespace(namespace)
+    with runez.ActivateColors(None if namespace.color == "auto" else namespace.color == "always"):
+        runez.date.DEFAULT_DURATION_SPAN = -2
+        runez.log.setup(debug=namespace.verbose, level=logging.INFO, console_format="%(levelname)s %(message)s", locations=None)
+        return command.run()

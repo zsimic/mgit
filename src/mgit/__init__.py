@@ -4,8 +4,7 @@ from typing import TYPE_CHECKING
 
 import runez
 
-from mgit import output
-from mgit.git import GitDir, GitRunReport
+from mgit.git import git_error_message, GitDir, GitRunReport, Reporter
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,7 +36,7 @@ class GitCheckout:
 
         result = f"{result}:"
         refs = self.git.refs
-        branch = output.branch_current(refs.current)
+        branch = Reporter.branch_current(refs.current)
         n = len(refs.local)
         if n > 1:
             branch += f" +{n - 1}"
@@ -54,25 +53,16 @@ class GitCheckout:
 
         return result
 
-    def status_report(self, report=None) -> GitRunReport:
-        report = GitRunReport(report)
-        if not report.has_problems:
-            report.add(self.git.report())
-
-        return report
-
     def print_status(self, report=None, show_details=True):
         print(self.header(report))
-        if not show_details:
-            return
+        if show_details:
+            orphan_branches = self.git.orphan_branches
+            if len(orphan_branches) > 1:
+                print(f"  Orphan branches: {', '.join(orphan_branches)}")
 
-        orphan_branches = self.git.orphan_branches
-        if len(orphan_branches) > 1:
-            print(f"  Orphan branches: {', '.join(orphan_branches)}")
-
-        status = self.git.status
-        self.print_modified(status.modified, output.index_change, output.worktree_change)
-        self.print_modified(status.untracked, output.untracked_change)
+            status = self.git.status
+            self.print_modified(status.modified, Reporter.index_change, Reporter.worktree_change)
+            self.print_modified(status.untracked, Reporter.untracked_change)
 
     @staticmethod
     def print_modified(items, state_style, worktree_style=None):
@@ -90,37 +80,24 @@ class GitCheckout:
     def branch_annotations(name, default_branch, orphan_branches, is_protected):
         annotations = []
         if name == default_branch:
-            annotations.append(output.branch_default("[default]"))
+            annotations.append(Reporter.branch_default("[default]"))
 
         if name in orphan_branches and not is_protected:
-            annotations.append(output.branch_orphaned("[orphaned]"))
+            annotations.append(Reporter.branch_orphaned("[orphaned]"))
 
         return annotations
 
     def branch_lines(self):
-        refs = self.git.refs
-        branches = sorted(refs.local)
-        if not branches:
-            return ["  no local branches"]
-
         default_branch = self.git.default_branch
         orphan_branches = set(self.git.orphan_branches)
-        width = max(len(name) for name in branches)
-        lines = []
-        for name in branches:
-            is_current = name == refs.current
-            marker = "*" if is_current else " "
-            line = f"{marker} {name:<{width}}"
-            if is_current:
-                line = output.branch_current(line)
-
+        width = max(len(name) for name in self.git.refs.local)
+        for name in sorted(self.git.refs.local):
+            line = f"{'*' if name == self.git.refs.current else ' '} {name:<{width}}"
             annotations = self.branch_annotations(name, default_branch, orphan_branches, self.git.is_protected_branch(name))
             if annotations:
                 line += f"  {' '.join(annotations)}"
 
-            lines.append(line)
-
-        return lines
+            yield line
 
     def print_branch_report(self, indent=""):
         for line in self.branch_lines():
@@ -155,10 +132,10 @@ class GitCheckout:
             if base_ref and not self.git.is_ancestor(branch, base_ref):
                 args.insert(2, "--force")
 
-            _, error = self.git.run_git_command(*args)
+            proc = self.git.run_git_command(*args)
             attempted_delete = True
-            if error.has_problems:
-                report.add(problem=f"couldn't delete '{branch}': {error.representation()}")
+            if proc.returncode:
+                report.add(problem=f"couldn't delete '{branch}': {git_error_message(proc)}")
 
             else:
                 report.add(progress=f"deleted {branch}")
@@ -197,11 +174,9 @@ class ProjectDir:
 
     @property
     def header(self):
-        result = f"{output.workspace_path(runez.short(self.path))}:"
-        if not self.checkouts:
-            return f"{result} {output.warning('no git folders')}"
-
-        return result
+        text = f"{Reporter.workspace_path(runez.short(self.path))}:"
+        Reporter.abort_if(not self.checkouts, f"{text} no git folders")
+        return text
 
     def print_header(self):
         if len(self.checkouts) != 1:
