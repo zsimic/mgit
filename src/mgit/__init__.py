@@ -23,26 +23,20 @@ class GitCheckout:
         self.git = GitDir(self.path)
         self.parent = parent
 
-    def header(self, report=None):
-        """
-        :param GitRunReport|None report: Optional report to show (defaults to self.git.report)
-        :return str: Textual representation
-        """
-        report = GitRunReport(report if report is not None else self.git.report())
-
+    def header(self, report: GitRunReport | None = None) -> str:
+        """One-line header to show for this git checkout"""
+        report = GitRunReport(report)
         result = self.basename
         if self.parent and self.parent.name_size:
             result = f"{result:>{self.parent.name_size}}"
 
         result = f"{result}:"
-        refs = self.git.refs
-        branch = Reporter.branch_current(refs.current)
-        n = len(refs.local)
+        branch = Reporter.branch_current(self.git.refs.current)
+        n = len(self.git.refs.local)
         if n > 1:
             branch += f" +{n - 1}"
 
         result += f" [{branch}]"
-
         freshness = self.git.status.freshness
         if freshness:
             result += f" {freshness}"

@@ -124,7 +124,8 @@ class StatusCommand(ProjectCommand):
 
     def run(self) -> int:
         project_dir = self.get_project_dir()
-        project_dir.print_status()
+        reports = {checkout: checkout.git.report() for checkout in project_dir.checkouts}
+        project_dir.print_status(reports)
         return 0
 
 

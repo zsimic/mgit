@@ -1,35 +1,43 @@
-import shutil
+from __future__ import annotations
+
+import os
 import subprocess
 from pathlib import Path
 from textwrap import dedent
 
+import runez
+
 from mgit.cli import normalized_cli_args
 
-GIT = shutil.which("git") or "git"
 
+def git(cwd: str | Path | None, *args, check=True) -> str:
+    cmd = ["git"]
+    if cwd:
+        cmd.append("-C")
+        cmd.append(str(cwd))
 
-def git(cwd, *args, check=True):
-    proc = subprocess.run(  # noqa: S603
-        [GIT, "-C", str(cwd), *args],
-        check=check,
-        capture_output=True,
-        text=True,
-    )
+    cmd.extend(args)
+    proc = subprocess.run(cmd, check=check, capture_output=True, text=True)  # noqa: S603
     return proc.stdout.strip()
 
 
 def git_init(*args):
-    subprocess.run([GIT, *args], check=True, capture_output=True, text=True)  # noqa: S603
+    git(None, "init", *args)
 
 
-def make_checkout(base):
+def git_clone(*args):
+    git(None, "clone", *args)
+
+
+def make_checkout(base: Path | str):
+    base = runez.to_path(base)
     base.mkdir(parents=True, exist_ok=True)
     remote = base / "remote.git"
     seed = base / "seed"
     work = base / "work"
 
-    git_init("init", "--bare", "--initial-branch=main", str(remote))
-    git_init("init", "--initial-branch=main", str(seed))
+    git_init("--bare", "--initial-branch=main", str(remote))
+    git_init("--initial-branch=main", str(seed))
     git(seed, "config", "user.email", "tester@example.com")
     git(seed, "config", "user.name", "Test User")
     (seed / "README.md").write_text("hello\n")
@@ -38,22 +46,24 @@ def make_checkout(base):
     remote_url = str(remote.resolve())
     git(seed, "remote", "add", "origin", remote_url)
     git(seed, "push", "-u", "origin", "main")
-    git_init("clone", remote_url, str(work))
+    git_clone(remote_url, str(work))
     git(work, "config", "user.email", "tester@example.com")
     git(work, "config", "user.name", "Test User")
     return work
 
 
-def make_repo(path):
-    git_init("init", "--initial-branch=main", str(path))
+def make_repo(path: Path | str):
+    path = runez.to_path(path)
+    git_init("--initial-branch=main", str(path))
     git(path, "config", "user.email", "tester@example.com")
     git(path, "config", "user.name", "Test User")
     (path / "README.md").write_text("Some description\n")
     git(path, "add", "README.md")
     git(path, "commit", "-m", "initial")
+    return path
 
 
-def make_stale_tracked_branch(work):
+def make_stale_tracked_branch(work: Path):
     git(work, "checkout", "-b", "stale")
     git(work, "push", "-u", "origin", "stale")
     git(work, "checkout", "main")
@@ -61,13 +71,13 @@ def make_stale_tracked_branch(work):
     git(work, "checkout", "stale")
 
 
-def commit_file(work, name, text, message):
+def commit_file(work: Path, name, text, message):
     (work / name).write_text(text)
     git(work, "add", name)
     git(work, "commit", "-m", message)
 
 
-def make_unmerged_stale_tracked_branch(work):
+def make_unmerged_stale_tracked_branch(work: Path):
     git(work, "checkout", "-b", "unmerged")
     commit_file(work, "unmerged.txt", "still in progress\n", "unmerged work")
     git(work, "push", "-u", "origin", "unmerged")
@@ -76,7 +86,7 @@ def make_unmerged_stale_tracked_branch(work):
     git(work, "checkout", "unmerged")
 
 
-def make_squashed_stale_tracked_branch(work):
+def make_squashed_stale_tracked_branch(work: Path):
     git(work, "checkout", "-b", "squashed")
     commit_file(work, "one.txt", "one\n", "one")
     commit_file(work, "two.txt", "two\n", "two")
@@ -106,11 +116,19 @@ def test_cli_arg_normalization():
     assert normalized_cli_args([]) == ["status"]
     assert normalized_cli_args(["workspace"]) == ["status", "workspace"]
     assert normalized_cli_args(["f", "workspace"]) == ["fetch", "workspace"]
-    assert normalized_cli_args(["--color", "always", "g", "checkout"]) == ["--color", "always", "groom", "checkout"]
+    assert normalized_cli_args(["--color=always", "g", "checkout"]) == ["--color=always", "groom", "checkout"]
 
 
 def test_abort_reporting(cli):
-    cli.run("missing")
+    cli.run("--color")
+    assert cli.failed
+    assert "argument --color: expected one argument" in cli.logged.stderr
+
+    cli.run("-z")
+    assert cli.failed
+    assert "error: unrecognized arguments: -z" in cli.logged.stderr
+
+    cli.run("--color never missing")
     assert cli.failed
     assert cli.exit_code == 1
     assert "No folder" in cli.logged
@@ -128,8 +146,8 @@ def test_abort_reporting(cli):
 
 
 def test_workspace_status_alignment(cli):
-    make_repo(Path("my-workspace/short"))
-    make_repo(Path("my-workspace/longer-name"))
+    make_repo("my-workspace/short")
+    make_repo("my-workspace/longer-name")
 
     expected = dedent("""\
         my-workspace:
@@ -147,19 +165,40 @@ def test_workspace_status_alignment(cli):
 
 
 def test_single_status_shows_pending_paths(cli):
-    make_repo(Path("repo"))
-    (Path("repo/README.md")).write_text("changed\n")
-    (Path("repo/new.txt")).write_text("new\n")
+    repo = make_repo("repo")
+    (repo / "README.md").write_text("changed\n")
+    (repo / "new.txt").write_text("new\n")
 
+    # Refer to folder 'repo' specifically
     cli.run("repo")
-
     assert cli.succeeded
     assert "README.md" in cli.logged
     assert "new.txt" in cli.logged
 
+    # Using '.', we end up with a ProjectDir with exactly one checkout
+    cli.run(".")
+    assert cli.succeeded
+    assert "repo: [main] 1 diff, 1 untracked, up to date  no remotes; current branch 'main' is orphaned" in cli.logged
+
+    # Grooming refused with pending changes
+    cli.run("g repo")
+    assert cli.failed
+    assert "can't groom; pending changes; 1 diff; 1 untracked" in cli.logged
+
+    # Convenience case: find .git/ from parent folder
+    (repo / "foo").mkdir()
+    os.chdir("repo/foo")
+    cli.run(".")
+    assert cli.succeeded
+    assert "repo: [main] 1 diff, 1 untracked, up to date  no remotes; current branch 'main' is orphaned" in cli.logged
+
+    # Running fetch from subfolder -> no op here
+    cli.run("f")
+    assert cli.succeeded
+
 
 def test_verbose_enables_debug_logging(cli):
-    make_repo(Path("repo"))
+    make_repo("repo")
 
     cli.run("repo")
     assert cli.succeeded
@@ -171,8 +210,8 @@ def test_verbose_enables_debug_logging(cli):
 
 
 def test_branches_single_repo(cli):
-    make_repo(Path("repo"))
-    git(Path("repo"), "checkout", "-b", "feature")
+    make_repo("repo")
+    git("repo", "checkout", "-b", "feature")
 
     cli.run("b repo")
 
@@ -184,9 +223,9 @@ def test_branches_single_repo(cli):
 
 
 def test_branches_workspace(cli):
-    make_repo(Path("workspace/one"))
-    make_repo(Path("workspace/two"))
-    git(Path("workspace/two"), "checkout", "-b", "topic")
+    make_repo("workspace/one")
+    make_repo("workspace/two")
+    git("workspace/two", "checkout", "-b", "topic")
 
     cli.run("branches workspace")
 
@@ -201,7 +240,7 @@ def test_branches_workspace(cli):
 
 
 def test_main_checks_out_default_branch(cli):
-    work = make_checkout(Path("checkout"))
+    work = make_checkout("checkout")
     git(work, "checkout", "-b", "feature")
 
     cli.run("m checkout/work")
@@ -211,7 +250,7 @@ def test_main_checks_out_default_branch(cli):
 
 
 def test_groom_deletes_stale_tracked_branch(cli):
-    work = make_checkout(Path("checkout"))
+    work = make_checkout("checkout")
     make_stale_tracked_branch(work)
 
     cli.run("g checkout/work")
@@ -228,7 +267,7 @@ def test_groom_deletes_stale_tracked_branch(cli):
 
 
 def test_groom_preserves_unmerged_stale_tracked_branch(cli):
-    work = make_checkout(Path("checkout"))
+    work = make_checkout("checkout")
     make_unmerged_stale_tracked_branch(work)
 
     cli.run("g checkout/work")
@@ -241,7 +280,7 @@ def test_groom_preserves_unmerged_stale_tracked_branch(cli):
 
 
 def test_groom_deletes_squashed_stale_tracked_branch(cli):
-    work = make_checkout(Path("checkout"))
+    work = make_checkout("checkout")
     make_squashed_stale_tracked_branch(work)
 
     cli.run("g checkout/work")
@@ -253,7 +292,7 @@ def test_groom_deletes_squashed_stale_tracked_branch(cli):
 
 
 def test_groom_reports_already_on_default_branch(cli):
-    work = make_checkout(Path("checkout"))
+    work = make_checkout("checkout")
 
     cli.run("g checkout/work")
 
@@ -263,14 +302,22 @@ def test_groom_reports_already_on_default_branch(cli):
 
 
 def test_groom_refuses_pending_changes(cli):
-    work = make_checkout(Path("checkout"))
+    work = make_checkout("checkout")
     make_stale_tracked_branch(work)
     (work / "scratch.txt").write_text("pending\n")
 
     cli.run("groom checkout/work")
-
     assert cli.failed
     assert cli.exit_code == 1
     assert "pending changes" in cli.logged
     assert git(work, "branch", "--show-current") == "stale"
     assert git(work, "branch", "--list", "stale")
+
+    # Can't pull checkout/work (but 'seed' is OK)
+    cli.run("pull checkout")
+    assert cli.succeeded
+    assert cli.logged.stdout.contents() == dedent("""\
+        checkout:
+        seed: [main] up to date
+        work: [stale +1] 1 untracked  can't pull; remote branch gone
+    """)

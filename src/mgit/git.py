@@ -52,32 +52,30 @@ LOCAL_REF_PREFIX = "refs/heads/"
 REMOTE_REF_PREFIX = "refs/remotes/"
 
 
-def git_error_message(proc: subprocess.CompletedProcess[str]) -> str:
+def git_error_message(proc: subprocess.CompletedProcess[str]) -> str | None:
     """Short user-facing description of a failed git command."""
-    detail = (proc.stderr or proc.stdout).strip() or f"git exited with code {proc.returncode}"
-    detail = detail.strip().lower()
-    if "following untracked" in detail:
-        return "untracked files would be overwritten"
+    if proc.returncode:
+        detail = (proc.stderr or proc.stdout).strip() or f"git exited with code {proc.returncode}"
+        detail = detail.strip().lower()
+        if "following untracked" in detail:
+            return "untracked files would be overwritten"
 
-    if "repository not found" in detail:
-        return "repository not found"
+        if "repository not found" in detail:
+            return "repository not found"
 
-    lines = []
-    prefixed = []
-    for line in detail.splitlines():
-        line = line.strip().strip(".")
-        if line:
-            p = line.partition(":")
-            if p[2] and p[0] in ("git", "error", "fatal"):
-                prefixed.append(p[2].strip())
+        lines = []
+        prefixed = []
+        for line in detail.splitlines():
+            line = line.strip().strip(".")
+            if line:
+                p = line.partition(":")
+                if p[2] and p[0] in ("git", "error", "fatal"):
+                    prefixed.append(p[2].strip())
 
-            else:
-                lines.append(line)
+                else:
+                    lines.append(line)
 
-    if prefixed:
-        lines = prefixed
-
-    return " ".join(lines[:2]).replace("  ", " ").strip()
+        return " ".join((prefixed or lines)[:2]).replace("  ", " ").strip()
 
 
 class GitRunReport:
@@ -96,11 +94,8 @@ class GitRunReport:
         self._problem = []
         self.add(other, progress=progress, note=note, problem=problem)
 
-    def __contains__(self, text):
-        """
-        :param str text: Text to look up
-        :return bool: True if 'text' is mentioned in one of the messages in self._problem
-        """
+    def __contains__(self, text: str) -> bool:
+        """True if 'text' is mentioned in one of the messages in self._problem"""
         return bool(text) and any(text in problem for problem in self._problem)
 
     def cant_pull(self, reason=None):
@@ -158,7 +153,7 @@ class GitRunReport:
 
 def git_error_report(proc: subprocess.CompletedProcess[str]) -> GitRunReport:
     """GitRunReport describing a failed git command."""
-    return GitRunReport(problem=git_error_message(proc) if proc.returncode else None)
+    return GitRunReport(problem=git_error_message(proc))
 
 
 @dataclass
@@ -293,6 +288,7 @@ class GitDir:
         if refs.detached:
             result.add(note="HEAD detached")
 
+        result.add(self.status.report)
         return result
 
     def run_git_command(self, *args: str) -> subprocess.CompletedProcess[str]:
@@ -374,8 +370,7 @@ class GitDir:
             return GitRunReport().cant_pull("pending changes")
 
         if status.report.has_problems:
-            status.report.add(problem="<can't pull")
-            return status.report
+            return GitRunReport(status.report).cant_pull()
 
         refs = self.refs
         if not refs.current:
@@ -550,17 +545,11 @@ class GitStatus:
     def freshness(self) -> str:
         """Short freshness overview"""
         result = []
-        if self.report._problem:
-            result.append(Reporter.problem(" ".join(self.report._problem)))
-
         if self.modified:
             result.append(Reporter.problem(runez.plural(self.modified, "diff")))
 
         if self.untracked:
             result.append(Reporter.untracked_change(f"{len(self.untracked)} untracked"))
-
-        if self.report._note:
-            result.append(Reporter.note(" ".join(self.report._note)))
 
         if not self.report._problem and not self.report._note and self._parent.age is not None:
             result.append(Reporter.ok("up to date"))
