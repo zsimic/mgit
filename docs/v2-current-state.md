@@ -74,8 +74,8 @@ still deferred.
 rendering:
 
 - `GitCheckout` wraps one local path, composes checkout status reports, renders
-  status and branch output, and owns local-checkout grooming helpers such as
-  current-branch cleanability and stale local branch deletion.
+  status and branch output, and still has local stale-branch deletion helpers
+  for report-shaped callers.
 - `ProjectDir` represents the requested folder as a collection of zero or more
   git checkouts. Its print helpers handle status and branch reports for the
   collection, including the workspace/no-repos header rule.
@@ -90,6 +90,8 @@ composition currently live on `GitCheckout` and `ProjectDir`.
 
 - `GitRunReport` composes problems, progress, and notes with stable ordering.
 - `GitDir` is the main git runner and state facade.
+- `CleanableLocalBranch` carries the result of a local branch cleanup proof,
+  including whether deletion needs `git branch --delete --force`.
 - `GitRefs` is the repository ref snapshot. It uses `git remote`,
   `git symbolic-ref`, and `git for-each-ref` to gather current/local branches,
   remote branches, `origin/HEAD` default-branch information, and exact local
@@ -97,6 +99,8 @@ composition currently live on `GitCheckout` and `ProjectDir`.
   were removed; clone URL parsing will be redesigned with `clone`.
 - `GitDir.default_branch` resolves `origin/HEAD` first and falls back to
   `main` or `master`.
+- `GitDir.age` is a simple per-command freshness snapshot captured when the
+  `GitDir` is created. Successful fetch and pull operations update it directly.
 - `GitStatus` parses `git status --porcelain=v2 --branch`, keeping worktree
   status and structured ahead/behind reporting separate from ref discovery.
 - Cleanable local and remote branches are proven with
@@ -125,7 +129,8 @@ composition currently live on `GitCheckout` and `ProjectDir`.
   literal branch name.
 - `groom` is local-only and currently single-repo only. When run from a
   non-default branch, it refuses to switch branches unless the current branch is
-  also cleanable.
+  also cleanable. `groom` now owns its step-by-step output directly rather than
+  rendering a composed final `GitRunReport` status line.
 
 ## Remaining Work
 
@@ -162,5 +167,4 @@ Coverage is light around:
 - Workspace fetch/pull failures and result aggregation.
 - Clone config matching.
 - Color policy.
-- Exit-code matrix.
 - Packaging and dependency cleanup.

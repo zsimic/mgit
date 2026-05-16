@@ -177,8 +177,7 @@ Short-name policy:
 - Reports when it is already on the default branch rather than implying the
   default branch is a cleanup candidate.
 - Resolves the default branch using the same `main` logic.
-- Checks out the default branch when cleanup should proceed, then deletes only
-  branches proven stale/cleanable.
+- Checks out the default branch when cleanup should proceed.
 - Pulls the default branch safely, using the same guardrails as `pull`.
 - Deletes local branches whose tracked remote is gone and whose content is
   already on the default branch, while never deleting default branches, `HEAD`,
@@ -187,7 +186,8 @@ Short-name policy:
   squash/content-equivalent branches, a local force delete is allowed only after
   the no-op merge proof has passed.
 - Leaves non-tracking local branches alone in the first implementation.
-- Reports what it did and what it skipped.
+- Prints direct step-by-step output instead of rendering a final status report.
+  Successful runs end with `on <default-branch> ✅`.
 - Current implementation is single-repo only. Workspace grooming can come after
   single-repo behavior is solid.
 
@@ -271,12 +271,12 @@ Rules:
 Reconsider `rich` only if table layout, wrapping, or Windows color support
 becomes a real implementation burden.
 
-## Exit Codes
+## Process Results
 
-Draft policy:
+`mgit` does not use process exit codes as a meaningful reporting channel.
+Successful commands return normally. Failed commands abort with a non-zero
+process result, but callers should read the printed message rather than infer a
+specific meaning from the exact code.
 
-- `0`: command completed without repo-level problems.
-- `1`: command completed but one or more repos had problems.
-- `2`: invalid CLI usage or config.
-
-Workspace commands should continue across repos and summarize failures.
+Workspace commands should continue across repos and summarize failures where
+that remains useful.

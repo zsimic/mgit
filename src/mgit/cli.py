@@ -11,9 +11,7 @@ from pathlib import Path
 import runez
 
 from mgit import GitCheckout, ProjectDir, Reporter
-from mgit.git import GitRunReport
-
-FETCH_COOLDOWN_SECONDS = 30
+from mgit.git import git_error_message, GitDir, GitRunReport
 
 
 def command_name_from_class(cls: type) -> str:
@@ -47,7 +45,7 @@ class CliCommand(ABC):
 
     @abstractmethod
     def run(self) -> int:
-        """Run the command and return a process exit code."""
+        """Run the command."""
 
 
 class FolderTargetCommand(CliCommand):
@@ -94,7 +92,7 @@ class SingleCheckoutCommand(FolderTargetCommand):
 
     def get_git_checkout(self) -> GitCheckout:
         folder = self.actual_folder()
-        Reporter.abort_if(not (folder / ".git").is_dir(), f"{self.command_name()} only supports one git checkout", exit_code=2)
+        Reporter.abort_if(not (folder / ".git").is_dir(), f"{self.command_name()} only supports one git checkout")
 
         return GitCheckout(folder)
 
@@ -139,7 +137,7 @@ class FetchCommand(ProjectCommand):
         project_dir = self.get_project_dir()
         reports = {}
         for checkout in project_dir.checkouts:
-            fetch_report = checkout.git.fetch(age=FETCH_COOLDOWN_SECONDS)
+            fetch_report = checkout.git.fetch()
             reports[checkout] = self.status_report(checkout, fetch_report)
 
         project_dir.print_status(reports)
@@ -194,48 +192,57 @@ class GroomCommand(SingleCheckoutCommand):
 
     short_name = "g"
 
+    def _checkout_default_branch(self, git: GitDir, branch: str) -> None:
+        proc = git.run_git_command("checkout", branch)
+        git.clear_cached_state()
+        if proc.returncode:
+            Reporter.abort(f"can't groom: checkout {branch} failed: {git_error_message(proc)}")
+
+        print(f"Checked out {branch} branch")
+
+    def _delete_stale_local_branches(self, git: GitDir) -> None:
+        cleanups = git.stale_tracked_local_branch_cleanups()
+        if not cleanups:
+            print("No stale local branches")
+            return
+
+        for cleanup in cleanups:
+            args = ["branch", "--delete", cleanup.name]
+            if cleanup.force_delete:
+                args.insert(2, "--force")
+
+            proc = git.run_git_command(*args)
+            if proc.returncode:
+                Reporter.abort(f"can't groom: couldn't delete '{cleanup.name}': {git_error_message(proc)}")
+
+            else:
+                print(f"Deleted branch {cleanup.name}")
+
+        git.clear_cached_state()
+
     def run(self) -> int:
         target = self.get_git_checkout()
-        report = GitRunReport()
+        git = target.git
+        git.fetch_now().require_success("groom")
+        status = git.status
+        status.require_clean("groom")
+        refs = git.refs
+        current_branch = refs.current
+        default_branch = git.default_branch
+        if current_branch != default_branch and not git.cleanable_local_branch(current_branch, include_current=True):
+            Reporter.abort(f"can't groom: current branch can't be cleaned: {current_branch}")
 
-        fetch_report = target.git.fetch(age=None)
-        if fetch_report.has_problems:
-            report.add(fetch_report).add(problem="<can't groom")
-            target.print_status(report)
-            return 1
+        if current_branch == default_branch:
+            print(f"Already on {default_branch} branch")
 
-        if target.git.status.has_pending_changes:
-            target.print_status(target.git.status.pending_changes_report())
-            return 1
+        else:
+            self._checkout_default_branch(git, default_branch)
 
-        current_report = target.current_branch_cleanable_report()
-        if current_report.has_problems:
-            target.print_status(current_report)
-            return 1
-
-        report.add(current_report)
-
-        checkout_report = target.git.checkout_default_branch()
-        if checkout_report.has_problems:
-            report.add(checkout_report).add(problem="<can't groom")
-            target.print_status(report)
-            return 1
-
-        report.add(checkout_report)
-        if target.git.status.has_pending_changes:
-            target.print_status(target.git.status.pending_changes_report())
-            return 1
-
-        pull_report = target.git.pull()
-        if pull_report.has_problems:
-            report.add(pull_report).add(problem="<can't groom")
-            target.print_status(report)
-            return 1
-
-        report.add(pull_report)
-        report.add(target.delete_stale_local_branches())
-        target.print_status(report)
-        return 1 if report.has_problems else 0
+        git.pull()
+        git.clear_cached_state()
+        self._delete_stale_local_branches(git)
+        print(f"on {default_branch} ✅")
+        return 0
 
 
 class CommandHelpFormatter(argparse.HelpFormatter):

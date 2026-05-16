@@ -130,18 +130,15 @@ def test_abort_reporting(cli):
 
     cli.run("--color never missing")
     assert cli.failed
-    assert cli.exit_code == 1
     assert "No folder" in cli.logged
 
     Path("folder").mkdir()
     cli.run("main folder")
     assert cli.failed
-    assert cli.exit_code == 2
     assert "main only supports one git checkout" in cli.logged
 
     cli.run("folder")
     assert cli.failed
-    assert cli.exit_code == 1
     assert "no git folders" in cli.logged
 
 
@@ -151,8 +148,8 @@ def test_workspace_status_alignment(cli):
 
     expected = dedent("""\
         my-workspace:
-        longer-name: [main] up to date  no remotes; current branch 'main' is orphaned
-              short: [main] up to date  no remotes; current branch 'main' is orphaned
+        longer-name: [main]  no remotes; current branch 'main' is orphaned
+              short: [main]  no remotes; current branch 'main' is orphaned
     """)
 
     cli.run("my-workspace")
@@ -178,19 +175,19 @@ def test_single_status_shows_pending_paths(cli):
     # Using '.', we end up with a ProjectDir with exactly one checkout
     cli.run(".")
     assert cli.succeeded
-    assert "repo: [main] 1 diff, 1 untracked, up to date  no remotes; current branch 'main' is orphaned" in cli.logged
+    assert "repo: [main] 1 diff, 1 untracked  no remotes; current branch 'main' is orphaned" in cli.logged
 
     # Grooming refused with pending changes
     cli.run("g repo")
     assert cli.failed
-    assert "can't groom; pending changes; 1 diff; 1 untracked" in cli.logged
+    assert "can't groom: pending changes: 1 diff, 1 untracked" in cli.logged
 
     # Convenience case: find .git/ from parent folder
     (repo / "foo").mkdir()
     os.chdir("repo/foo")
     cli.run(".")
     assert cli.succeeded
-    assert "repo: [main] 1 diff, 1 untracked, up to date  no remotes; current branch 'main' is orphaned" in cli.logged
+    assert "repo: [main] 1 diff, 1 untracked  no remotes; current branch 'main' is orphaned" in cli.logged
 
     # Running fetch from subfolder -> no op here
     cli.run("f")
@@ -256,14 +253,22 @@ def test_groom_deletes_stale_tracked_branch(cli):
     cli.run("g checkout/work")
 
     assert cli.succeeded
-    assert "deleted stale" in cli.logged
+    assert cli.logged.stdout.contents() == dedent("""\
+        Checked out main branch
+        Deleted branch stale
+        on main ✅
+    """)
     assert git(work, "branch", "--show-current") == "main"
     assert not git(work, "branch", "--list", "stale")
 
     # Groom a 2nd time is a no-op
     cli.run("g checkout/work")
     assert cli.succeeded
-    assert cli.logged.stdout.contents().strip() == "work: [main] up to date  already on main branch; no stale local branches"
+    assert cli.logged.stdout.contents() == dedent("""\
+        Already on main branch
+        No stale local branches
+        on main ✅
+    """)
 
 
 def test_groom_preserves_unmerged_stale_tracked_branch(cli):
@@ -273,8 +278,7 @@ def test_groom_preserves_unmerged_stale_tracked_branch(cli):
     cli.run("g checkout/work")
 
     assert cli.failed
-    assert cli.exit_code == 1
-    assert "current branch can't be cleaned" in cli.logged
+    assert "can't groom: current branch can't be cleaned: unmerged" in cli.logged
     assert git(work, "branch", "--show-current") == "unmerged"
     assert git(work, "branch", "--list", "unmerged")
 
@@ -286,7 +290,7 @@ def test_groom_deletes_squashed_stale_tracked_branch(cli):
     cli.run("g checkout/work")
 
     assert cli.succeeded
-    assert "deleted squashed" in cli.logged
+    assert "Deleted branch squashed" in cli.logged
     assert git(work, "branch", "--show-current") == "main"
     assert not git(work, "branch", "--list", "squashed")
 
@@ -297,7 +301,8 @@ def test_groom_reports_already_on_default_branch(cli):
     cli.run("g checkout/work")
 
     assert cli.succeeded
-    assert "already on main branch" in cli.logged
+    assert "Already on main branch" in cli.logged
+    assert "on main ✅" in cli.logged
     assert git(work, "branch", "--show-current") == "main"
 
 
@@ -308,8 +313,7 @@ def test_groom_refuses_pending_changes(cli):
 
     cli.run("groom checkout/work")
     assert cli.failed
-    assert cli.exit_code == 1
-    assert "pending changes" in cli.logged
+    assert "can't groom: pending changes: 1 untracked" in cli.logged
     assert git(work, "branch", "--show-current") == "stale"
     assert git(work, "branch", "--list", "stale")
 
@@ -318,6 +322,6 @@ def test_groom_refuses_pending_changes(cli):
     assert cli.succeeded
     assert cli.logged.stdout.contents() == dedent("""\
         checkout:
-        seed: [main] up to date
+        seed: [main]
         work: [stale +1] 1 untracked  can't pull; remote branch gone
     """)

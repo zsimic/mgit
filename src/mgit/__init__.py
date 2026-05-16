@@ -37,9 +37,9 @@ class GitCheckout:
             branch += f" +{n - 1}"
 
         result += f" [{branch}]"
-        freshness = self.git.status.freshness
-        if freshness:
-            result += f" {freshness}"
+        dirty_note = self.git.status.dirty_note
+        if dirty_note:
+            result += f" {dirty_note}"
 
         rep = report.representation()
         if rep:
@@ -110,20 +110,20 @@ class GitCheckout:
 
     def delete_stale_local_branches(self) -> GitRunReport:
         report = GitRunReport()
-        branches = self.git.stale_tracked_local_branches()
-        if not branches:
+        cleanups = self.git.stale_tracked_local_branch_cleanups()
+        if not cleanups:
             return report.add(note="no stale local branches")
 
         current = self.git.refs.current
-        base_ref = self.git.cleanable_base_ref
         attempted_delete = False
-        for branch in branches:
+        for cleanup in cleanups:
+            branch = cleanup.name
             if branch == current:
                 report.add(problem=f"can't delete current branch '{branch}'")
                 continue
 
             args = ["branch", "--delete", branch]
-            if base_ref and not self.git.is_ancestor(branch, base_ref):
+            if cleanup.force_delete:
                 args.insert(2, "--force")
 
             proc = self.git.run_git_command(*args)
