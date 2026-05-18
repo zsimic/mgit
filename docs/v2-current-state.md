@@ -6,9 +6,8 @@ historical starting point and should not be edited as the live plan changes.
 
 ## Files Examined
 
-- Runtime code: `src/mgit/__init__.py`, `src/mgit/cli.py`,
-  `src/mgit/git.py`, `src/mgit/output.py`.
-- Tests: `tests/conftest.py`, `tests/test_cli.py`,
+- Runtime code: `src/mgit/__init__.py`, `src/mgit/cli.py`, `src/mgit/git.py`.
+- Tests: `tests/conftest.py`, `tests/test_cli.py`, `tests/test_groom.py`,
   `tests/test_reporting.py`.
 - Packaging and tooling: `pyproject.toml`, `tox.ini`, `MANIFEST.in`,
   `.github/workflows/tests.yml`, `.github/workflows/release.yml`.
@@ -83,8 +82,8 @@ rendering:
   were removed. URL parsing can be modeled later where clone/config behavior
   actually needs it.
 
-`src/mgit/output.py` holds color/style helpers. Status and workspace line
-composition currently live on `GitCheckout` and `ProjectDir`.
+`Reporter` in `src/mgit/git.py` currently holds color/style helpers. Status and
+workspace line composition currently live on `GitCheckout` and `ProjectDir`.
 
 `src/mgit/git.py` holds most git-specific behavior:
 
@@ -153,13 +152,13 @@ Existing tests cover:
 
 - Report composition, sorting, filtering, and truncation.
 - CLI help, command dispatch, and default command behavior.
-- Workspace status alignment and the fact that `-v/--verbose` controls logging,
-  not output shape.
-- Single-checkout pending path output.
-- Branch reports for single repos and workspaces.
+- Broad status checks for workspaces, single checkouts, pending path output, and
+  parent-checkout discovery from a subfolder.
+- The fact that `-v/--verbose` controls logging, not output shape.
+- Workspace branch reports.
 - `main` checkout behavior.
-- Single-repo `groom` deleting a stale tracked branch and refusing pending
-  changes.
+- Single-repo `groom` deleting a stale tracked branch, refusing pending changes,
+  and refusing an uncleanable current branch.
 
 Coverage is light around:
 

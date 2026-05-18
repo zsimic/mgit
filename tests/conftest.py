@@ -28,12 +28,14 @@ class TempGitRepo:
 
     @classmethod
     def clone(cls, remote_url: str, relative_path: str) -> TempGitRepo:
+        cls.ensure_parent(relative_path)
         cls.run_git_command("clone", remote_url, relative_path)
         repo = cls(relative_path)
         return repo
 
     @classmethod
     def init(cls, relative_path: str, configure=True, initial_branch="main", include_readme=True) -> TempGitRepo:
+        cls.ensure_parent(relative_path)
         args = []
         if initial_branch:
             args.append(f"--initial-branch={initial_branch}")
@@ -48,8 +50,15 @@ class TempGitRepo:
 
     @classmethod
     def init_bare(cls, relative_path: str, initial_branch="main") -> TempGitRepo:
+        cls.ensure_parent(relative_path)
         cls.run_git_command("init", "--bare", f"--initial-branch={initial_branch}", relative_path)
-        return TempGitRepo(relative_path)
+        return TempGitRepo(relative_path, configure=False)
+
+    @staticmethod
+    def ensure_parent(relative_path: str):
+        parent = Path(relative_path).parent
+        if parent != Path("."):
+            parent.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def run_git_command(*args, check=True, cwd=None) -> str:
@@ -80,6 +89,13 @@ class TempGitRepo:
         self.write_file(relative_path, contents)
         self.add(relative_path)
 
+    def branch(self, *args) -> str:
+        return self.run_git("branch", *args)
+
+    def commit_file(self, relative_path: str, contents: str, message: str):
+        self.add_file(relative_path, contents)
+        self.commit(message)
+
     def checkout(self, *args) -> str:
         return self.run_git("checkout", *args)
 
@@ -92,6 +108,13 @@ class TempGitRepo:
     def remote(self, *args) -> str:
         return self.run_git("remote", *args)
 
+    @property
+    def current_branch(self) -> str:
+        return self.branch("--show-current")
+
+    def has_branch(self, name: str) -> bool:
+        return bool(self.branch("--list", name))
+
     def write_file(self, relative_path: str, contents: str):
         runez.write(self.cwd / relative_path, contents + "\n", logger=None)
 
@@ -102,7 +125,7 @@ class SeededRepoSet:
         self.seed = TempGitRepo.init(f"{relative_path}-seed")
         self.seed.remote("add", "origin", self.remote_url)
         self.seed.push("-u", "origin", "main")
-        self.work = TempGitRepo.clone(self.remote_url, "work")
+        self.work = TempGitRepo.clone(self.remote_url, relative_path)
 
     @property
     def remote_url(self):
