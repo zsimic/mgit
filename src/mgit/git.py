@@ -47,6 +47,7 @@ class Reporter:
         Reporter.log.debug(message, *args)
 
 
+FRESH_FETCH_THRESHOLD = 30
 FRESHNESS_THRESHOLD = 12 * runez.date.SECONDS_IN_ONE_HOUR
 LOCAL_REF_PREFIX = "refs/heads/"
 REMOTE_REF_PREFIX = "refs/remotes/"
@@ -261,7 +262,116 @@ class GitDir:
         :param Path path: Path to local repo
         """
         self.path = path
+        self.basename = path.name
         self.age = self._current_age()
+
+    @staticmethod
+    def _branch_annotations(name, default_branch, orphan_branches, is_protected):
+        annotations = []
+        if name == default_branch:
+            annotations.append(Reporter.branch_default("[default]"))
+
+        if name in orphan_branches and not is_protected:
+            annotations.append(Reporter.branch_orphaned("[orphaned]"))
+
+        return annotations
+
+    @staticmethod
+    def _detail_lines(items, state_style, worktree_style=None) -> list[str]:
+        lines = []
+        for item in items:
+            state = item[0:2]
+            if worktree_style:
+                state = f"{state_style(item[0])}{worktree_style(item[1])}"
+
+            elif state_style:
+                state = state_style(state)
+
+            lines.append(f"{state} {item[3:]}")
+
+        return lines
+
+    @staticmethod
+    def _short_age(age: int) -> str:
+        if age < runez.date.SECONDS_IN_ONE_MINUTE:
+            return f"{age}s"
+
+        if age < runez.date.SECONDS_IN_ONE_HOUR:
+            return f"{age // runez.date.SECONDS_IN_ONE_MINUTE}m"
+
+        if age < runez.date.SECONDS_IN_ONE_DAY:
+            return f"{age // runez.date.SECONDS_IN_ONE_HOUR}h"
+
+        return f"{age // runez.date.SECONDS_IN_ONE_DAY}d"
+
+    def status_line(self) -> str:
+        refs = self.refs
+        status = self.status
+        branch = refs.current or status.head or "HEAD"
+        if len(refs.local) > 1:
+            branch += f"+{len(refs.local) - 1}"
+
+        result = [Reporter.branch_current(branch)]
+        if refs.current in self.orphan_branches and not self.is_protected_branch(refs.current):
+            result.append(Reporter.branch_orphaned("🪦"))
+
+        else:
+            is_fresh = not status.has_pending_changes and self.age is not None and self.age <= FRESH_FETCH_THRESHOLD
+            result.append(Reporter.ok("✅") if is_fresh else "☑️")
+
+        if status.ahead:
+            result.append(f"ahead {status.ahead}")
+
+        if status.behind:
+            result.append(f"behind {status.behind}")
+
+        edits, deletes, new = status.pending_change_counts()
+        if edits:
+            result.append(f"✏️{edits}")
+
+        if deletes:
+            result.append(f"🗑️{deletes}")
+
+        if new:
+            result.append(f"🆕{new}")
+
+        if self.age is not None and self.age > FRESHNESS_THRESHOLD:
+            result.append(f"🕸️{self._short_age(self.age)}")
+
+        return " ".join(result)
+
+    def status_detail_lines(self) -> list[str]:
+        result = []
+        orphan_branches = [
+            branch for branch in self.orphan_branches if branch != self.refs.current and not self.is_protected_branch(branch)
+        ]
+        if orphan_branches:
+            result.append(f"Orphan branches: {', '.join(orphan_branches)}")
+
+        status = self.status
+        result.extend(self._detail_lines(status.modified, Reporter.index_change, Reporter.worktree_change))
+        result.extend(self._detail_lines(status.untracked, Reporter.untracked_change))
+        return result
+
+    def branch_lines(self) -> list[str]:
+        refs = self.refs
+        branches = sorted(refs.local) or ([refs.current] if refs.current else [])
+        if not branches:
+            return []
+
+        width = max(len(name) for name in branches)
+        default_branch = self.default_branch
+        orphan_branches = set(self.orphan_branches)
+        result = []
+        for name in branches:
+            line = f"{'*' if name == refs.current else ' '} {name:<{width}}"
+            annotations = self._branch_annotations(name, default_branch, orphan_branches, self.is_protected_branch(name))
+            if annotations:
+                line += f"  {' '.join(annotations)}"
+
+            result.append(line)
+
+        return result
 
     def report(self, bare=False) -> GitRunReport:
         """
@@ -613,6 +723,23 @@ class GitStatus:
     @property
     def has_pending_changes(self) -> bool:
         return bool(self.modified or self.untracked)
+
+    def pending_change_counts(self) -> tuple[int, int, int]:
+        edits = 0
+        deletes = 0
+        new = len(self.untracked)
+        for item in self.modified:
+            state = item[0:2]
+            if "D" in state:
+                deletes += 1
+
+            elif "A" in state:
+                new += 1
+
+            else:
+                edits += 1
+
+        return edits, deletes, new
 
     def require_clean(self, operation: str):
         if self.has_pending_changes:

@@ -57,8 +57,8 @@ def test_workspace_status_lists_child_checkouts(cli, git):
 
     assert cli.succeeded
     assert "my-workspace:" in cli.logged
-    assert "short: [main]" in cli.logged
-    assert "longer-name: [main]" in cli.logged
+    assert "short: main ✅" in cli.logged
+    assert "longer-name: main ✅" in cli.logged
 
 
 def test_single_status_shows_pending_paths_and_discovers_parent_checkout(cli, git):
@@ -68,15 +68,20 @@ def test_single_status_shows_pending_paths_and_discovers_parent_checkout(cli, gi
 
     cli.run("repo")
     assert cli.succeeded
+    assert "main ☑️ ✏️1 🆕1" in cli.logged
     assert "README.md" in cli.logged
     assert "new.txt" in cli.logged
 
     (repo.cwd / "foo").mkdir()
     os.chdir(repo.cwd / "foo")
-    cli.run(".")
+    cli.run()
     assert cli.succeeded
     assert "README.md" in cli.logged
     assert "new.txt" in cli.logged
+
+    cli.run(".")
+    assert cli.failed
+    assert "repo/foo: no git folders" in cli.logged
 
 
 def test_verbose_enables_debug_logging(cli, git):
@@ -104,6 +109,23 @@ def test_branches_workspace_lists_local_branches(cli, git):
     assert "* topic" in cli.logged
     assert "[default]" in cli.logged
     assert "[orphaned]" in cli.logged
+
+
+def test_pull_workspace_recaps_each_checkout(cli, git):
+    foo_source = git.seeded_set("foo-source")
+    bar_source = git.seeded_set("bar-source")
+    foo = git.clone(foo_source.remote_url, "workspace/foo")
+    git.clone(bar_source.remote_url, "workspace/bar-baz")
+    foo_source.seed.commit_file("next.txt", "next", "next")
+    foo_source.seed.push()
+    foo.run_git("fetch")
+
+    cli.run("pull workspace")
+
+    assert cli.succeeded
+    assert "foo: main ✅ (was behind 1)" in cli.logged
+    assert "bar-baz: main ✅ (was up-to-date)" in cli.logged
+    assert foo.run_git("rev-parse", "HEAD") == foo.run_git("rev-parse", "origin/main")
 
 
 def test_main_checks_out_default_branch(cli, git):

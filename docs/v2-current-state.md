@@ -51,13 +51,11 @@ still deferred.
 `src/mgit/cli.py` owns the argparse entry point and command classes:
 
 - `CliCommand` models shared command behavior, while `FolderTargetCommand`
-  supplies the common optional `folder` argument and folder normalization.
-  Current-folder requests climb to a parent git checkout, then fall back to the
-  current directory.
-- `ProjectCommand` returns a `ProjectDir` for commands that work across one
-  checkout or a workspace: status, fetch, pull, and branches.
-- `SingleCheckoutCommand` returns a typed `GitCheckout` for commands that require
-  exactly one checkout: main and groom.
+  supplies the common optional `folder` argument, resolves the target, and
+  dispatches to `run_single(GitDir)` or `run_multi(ProjectDir)`.
+- When no folder is supplied, target resolution climbs to a parent git checkout,
+  then falls back to the current directory as a workspace. When a folder is
+  supplied explicitly, even `.`, that folder is used as-is.
 - `StatusCommand`, `FetchCommand`, and `PullCommand` spell out their run
   behavior directly rather than routing through shared fetch/pull flags.
 - `normalized_cli_args()` normalizes argv before parsing: it inserts `status` when
@@ -69,21 +67,19 @@ still deferred.
 - The registry currently includes status, fetch, pull, main, branches, and
   groom.
 
-`src/mgit/__init__.py` still combines workspace modeling and status/branch
-rendering:
+`src/mgit/__init__.py` now holds only the lightweight workspace container:
 
-- `GitCheckout` wraps one local path, composes checkout status reports, renders
-  status and branch output, and still has local stale-branch deletion helpers
-  for report-shaped callers.
 - `ProjectDir` represents the requested folder as a collection of zero or more
-  git checkouts. Its print helpers handle status and branch reports for the
-  collection, including the workspace/no-repos header rule.
+  depth-1 `GitDir` children.
+- It keeps the workspace/no-repos header rule and provides aligned line prefixes
+  for multi-checkout output.
 - The old `MgitPreferences` object and Stash/GitHub/unknown remote grouping
   were removed. URL parsing can be modeled later where clone/config behavior
   actually needs it.
 
-`Reporter` in `src/mgit/git.py` currently holds color/style helpers. Status and
-workspace line composition currently live on `GitCheckout` and `ProjectDir`.
+`Reporter` in `src/mgit/git.py` currently holds color/style helpers. Git-derived
+status and branch rendering now lives on `GitDir` via `status_line()`,
+`status_detail_lines()`, and `branch_lines()`.
 
 `src/mgit/git.py` holds most git-specific behavior:
 
@@ -100,6 +96,8 @@ workspace line composition currently live on `GitCheckout` and `ProjectDir`.
   `main` or `master`.
 - `GitDir.age` is a simple per-command freshness snapshot captured when the
   `GitDir` is created. Successful fetch and pull operations update it directly.
+- `GitDir.status_line()` composes the compact one-line branch/freshness/status
+  output used by single and workspace status-like commands.
 - `GitStatus` parses `git status --porcelain=v2 --branch`, keeping worktree
   status and structured ahead/behind reporting separate from ref discovery.
 - Cleanable local and remote branches are proven with
@@ -124,6 +122,9 @@ workspace line composition currently live on `GitCheckout` and `ProjectDir`.
 - Direct-child workspace scanning for multi-repo folders.
 - The default folder behavior: when no folder is supplied, use the current git
   checkout if the current directory is inside one.
+- Explicit folder arguments do not climb to parent checkouts.
+- Commands dispatch through explicit `run_single(GitDir)` and
+  `run_multi(ProjectDir)` methods.
 - `main` is treated as a user-facing command for "default branch", not a
   literal branch name.
 - `groom` is local-only and currently single-repo only. When run from a
@@ -134,12 +135,11 @@ workspace line composition currently live on `GitCheckout` and `ProjectDir`.
 ## Remaining Work
 
 - `src/mgit/__init__.py` mixes public package imports, repo discovery, models,
-  and status rendering.
+  and workspace alignment.
 - `GitDir` mixes command execution, cached state, mutations, and reporting.
 - `clone` is planned but not implemented, and the config guide does not exist
   yet.
-- The CLI no longer uses Click, but `click<9` is still listed as a runtime
-  dependency.
+- The CLI no longer uses Click, and Click is not a runtime dependency.
 - `runez` remains central for cached properties, paths, durations, aborts,
   colors, and test helpers.
 - Packaging says `license-files = ["LICENSE.txt"]`, while the repository file
@@ -156,6 +156,7 @@ Existing tests cover:
   parent-checkout discovery from a subfolder.
 - The fact that `-v/--verbose` controls logging, not output shape.
 - Workspace branch reports.
+- Workspace pull recap output.
 - `main` checkout behavior.
 - Single-repo `groom` deleting a stale tracked branch, refusing pending changes,
   and refusing an uncleanable current branch.

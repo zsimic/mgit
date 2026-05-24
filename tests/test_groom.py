@@ -18,7 +18,7 @@ def test_groom_deletes_stale_tracked_branch(cli, git):
     assert cli.succeeded
     assert "Checked out main branch" in cli.logged
     assert "Deleted branch stale" in cli.logged
-    assert "on main" in cli.logged
+    assert "main ✅" in cli.logged
     assert work.current_branch == "main"
     assert not work.has_branch("stale")
 

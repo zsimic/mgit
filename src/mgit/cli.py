@@ -10,8 +10,8 @@ from pathlib import Path
 
 import runez
 
-from mgit import GitCheckout, ProjectDir, Reporter
-from mgit.git import git_error_message, GitDir, GitRunReport
+from mgit import ProjectDir, Reporter
+from mgit.git import git_error_message, GitDir
 
 
 def command_name_from_class(cls: type) -> str:
@@ -49,52 +49,69 @@ class CliCommand(ABC):
 
 
 class FolderTargetCommand(CliCommand):
-    folder: Path = Path(".")
+    folder: Path | None = None
 
-    def __init__(self, folder: Path):
+    def __init__(self, folder: Path | None):
         self.folder = folder
 
     @classmethod
     def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("folder", nargs="?", type=Path, default=cls.folder)
+        parser.add_argument("folder", nargs="?", type=Path)
 
     @classmethod
     def from_namespace(cls, namespace: argparse.Namespace) -> FolderTargetCommand:
         return cls(folder=namespace.folder)
 
-    def actual_folder(self) -> Path:
-        folder = self.folder.expanduser().absolute()
+    @staticmethod
+    def current_checkout() -> Path | None:
         current = Path.cwd()
-        if folder == current:
-            for candidate in (current, *current.parents):
-                if (candidate / ".git").is_dir():
-                    return candidate
+        for candidate in (current, *current.parents):
+            if (candidate / ".git").is_dir():
+                return candidate
 
+    def target(self) -> GitDir | ProjectDir:
+        if self.folder is None:
+            current = self.current_checkout()
+            if current:
+                return GitDir(current)
+
+        folder = (self.folder or Path(".")).expanduser().absolute()
         Reporter.abort_if(not folder.is_dir(), f"No folder '{runez.short(folder)}'")
-        return folder
+        if (folder / ".git").is_dir():
+            return GitDir(folder)
 
+        return ProjectDir(folder)
 
-class ProjectCommand(FolderTargetCommand):
-    """Command operating on a project directory or single checkout."""
+    def run(self) -> int:
+        """Run the command."""
+        target = self.target()
+        if isinstance(target, GitDir):
+            return self.run_single(target)
 
-    def get_project_dir(self) -> ProjectDir:
-        return ProjectDir(self.actual_folder())
+        return self.run_multi(target)
 
-    def status_report(self, checkout: GitCheckout, report: GitRunReport) -> GitRunReport:
-        if not report.has_problems:
-            report.add(checkout.git.report())
+    @staticmethod
+    def status_suffix(text: str | None) -> str:
+        return f" ({text})" if text else ""
 
-        return report
+    @staticmethod
+    def print_status(git: GitDir, suffix: str | None = None, show_details=True) -> None:
+        print(f"{git.status_line()}{FolderTargetCommand.status_suffix(suffix)}")
+        if show_details:
+            for line in git.status_detail_lines():
+                print(f"  {line}")
 
+    @staticmethod
+    def print_project_status(project_dir: ProjectDir, git: GitDir, suffix: str | None = None) -> None:
+        print(project_dir.prefixed_line(git, f"{git.status_line()}{FolderTargetCommand.status_suffix(suffix)}"))
 
-class SingleCheckoutCommand(FolderTargetCommand):
-    """Command operating on one git checkout."""
+    @abstractmethod
+    def run_single(self, git: GitDir) -> int:
+        """Run this command for one git dir."""
 
-    def get_git_checkout(self) -> GitCheckout:
-        folder = self.actual_folder()
-        Reporter.abort_if(not (folder / ".git").is_dir(), f"{self.command_name()} only supports one git checkout")
-
-        return GitCheckout(folder)
+    def run_multi(self, _project_dir: ProjectDir) -> int:
+        """Run this command for all git dirs in `project_dir`."""
+        Reporter.abort(f"{self.command_name()} only supports one git checkout")
 
 
 COMMANDS: list[type[CliCommand]] = []
@@ -115,79 +132,134 @@ def cli_command(command: type[CliCommand]) -> type[CliCommand]:
 
 
 @cli_command
-class StatusCommand(ProjectCommand):
+class StatusCommand(FolderTargetCommand):
     """Show repo or workspace status."""
 
     short_name = "s"
 
-    def run(self) -> int:
-        project_dir = self.get_project_dir()
-        reports = {checkout: checkout.git.report() for checkout in project_dir.checkouts}
-        project_dir.print_status(reports)
+    def run_single(self, git: GitDir) -> int:
+        self.print_status(git)
+        return 0
+
+    def run_multi(self, project_dir: ProjectDir) -> int:
+        project_dir.print_header()
+        for git in project_dir.git_dirs:
+            self.print_project_status(project_dir, git)
         return 0
 
 
 @cli_command
-class FetchCommand(ProjectCommand):
+class FetchCommand(FolderTargetCommand):
     """Fetch remotes, then show status."""
 
     short_name = "f"
 
-    def run(self) -> int:
-        project_dir = self.get_project_dir()
-        reports = {}
-        for checkout in project_dir.checkouts:
-            fetch_report = checkout.git.fetch()
-            reports[checkout] = self.status_report(checkout, fetch_report)
+    def fetch_status(self, git: GitDir) -> tuple[int, str | None]:
+        should_fetch = git.age is None or git.age > 30
+        report = git.fetch()
+        if report.has_problems:
+            return 1, report.representation()
 
-        project_dir.print_status(reports)
-        return 0
+        return 0, "fetched" if should_fetch else "fresh"
+
+    def run_single(self, git: GitDir) -> int:
+        exit_code, suffix = self.fetch_status(git)
+        self.print_status(git, suffix)
+        return exit_code
+
+    def run_multi(self, project_dir: ProjectDir) -> int:
+        project_dir.print_header()
+        exit_code = 0
+        for git in project_dir.git_dirs:
+            current_exit, suffix = self.fetch_status(git)
+            exit_code = max(exit_code, current_exit)
+            self.print_project_status(project_dir, git, suffix)
+
+        return exit_code
 
 
 @cli_command
-class PullCommand(ProjectCommand):
+class PullCommand(FolderTargetCommand):
     """Pull with rebase when the worktree is safe."""
 
     short_name = "p"
 
-    def run(self) -> int:
-        project_dir = self.get_project_dir()
-        reports = {}
-        for checkout in project_dir.checkouts:
-            pull_report = checkout.git.pull()
-            reports[checkout] = self.status_report(checkout, pull_report)
+    @staticmethod
+    def pull_summary(git: GitDir) -> str:
+        status = git.status
+        parts = []
+        if status.behind:
+            parts.append(f"was behind {status.behind}")
 
-        project_dir.print_status(reports)
-        return 0
+        if status.ahead:
+            parts.append(f"was ahead {status.ahead}")
+
+        return ", ".join(parts) or "was up-to-date"
+
+    def pull_status(self, git: GitDir) -> tuple[int, str | None]:
+        suffix = self.pull_summary(git)
+        report = git.pull()
+        if report.has_problems:
+            return 1, report.representation()
+
+        return 0, suffix
+
+    def run_single(self, git: GitDir) -> int:
+        exit_code, suffix = self.pull_status(git)
+        self.print_status(git, suffix)
+        return exit_code
+
+    def run_multi(self, project_dir: ProjectDir) -> int:
+        project_dir.print_header()
+        exit_code = 0
+        for git in project_dir.git_dirs:
+            current_exit, suffix = self.pull_status(git)
+            exit_code = max(exit_code, current_exit)
+            self.print_project_status(project_dir, git, suffix)
+
+        return exit_code
 
 
 @cli_command
-class MainCommand(SingleCheckoutCommand):
+class MainCommand(FolderTargetCommand):
     """Checkout the default branch."""
 
     short_name = "m"
 
-    def run(self) -> int:
-        target = self.get_git_checkout()
-        report = target.git.checkout_default_branch()
-        target.print_status(report)
+    def run_single(self, git: GitDir) -> int:
+        report = git.checkout_default_branch()
+        self.print_status(git, report.representation())
         return 1 if report.has_problems else 0
 
 
 @cli_command
-class BranchesCommand(ProjectCommand):
+class BranchesCommand(FolderTargetCommand):
     """Show local branches."""
 
     short_name = "b"
 
-    def run(self) -> int:
-        project_dir = self.get_project_dir()
-        project_dir.print_branch_reports()
+    def run_single(self, git: GitDir) -> int:
+        for line in git.branch_lines():
+            print(line)
+
+        return 0
+
+    def run_multi(self, project_dir: ProjectDir) -> int:
+        project_dir.print_header()
+        show_names = len(project_dir.git_dirs) > 1
+        for git in project_dir.git_dirs:
+            if show_names:
+                print(f"{git.basename}:")
+
+            indent = "  " if show_names else ""
+            for line in git.branch_lines():
+                print(f"{indent}{line}")
+
         return 0
 
 
 @cli_command
-class GroomCommand(SingleCheckoutCommand):
+class GroomCommand(FolderTargetCommand):
     """Fetch, return to default branch, pull, and clean stale local branches."""
 
     short_name = "g"
@@ -220,9 +292,7 @@ class GroomCommand(SingleCheckoutCommand):
 
         git.clear_cached_state()
 
-    def run(self) -> int:
-        target = self.get_git_checkout()
-        git = target.git
+    def run_single(self, git: GitDir) -> int:
         git.fetch_now().require_success("groom")
         status = git.status
         status.require_clean("groom")
@@ -238,10 +308,10 @@ class GroomCommand(SingleCheckoutCommand):
         else:
             self._checkout_default_branch(git, default_branch)
 
-        git.pull()
+        git.pull().require_success("groom")
         git.clear_cached_state()
         self._delete_stale_local_branches(git)
-        print(f"on {default_branch} ✅")
+        print(git.status_line())
         return 0
 
 

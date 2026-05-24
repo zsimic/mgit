@@ -86,7 +86,7 @@ Suggested module split:
 
 ## Phase 4: Dependency And Packaging Cleanup
 
-- [ ] Remove the unused Click dependency from package metadata.
+- [x] Remove the unused Click dependency from package metadata.
 - [ ] Decide whether to remove `runez` or keep a small dependency on it.
 - [ ] If removing `runez`, replace cached properties, paths, durations, aborts,
   and coloring with stdlib code.
