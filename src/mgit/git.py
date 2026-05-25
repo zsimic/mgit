@@ -24,7 +24,6 @@ class Reporter:
     problem = runez.red
     note = runez.purple
     progress = runez.plain
-    workspace_path = runez.purple
     index_change = runez.teal
     worktree_change = runez.red
     untracked_change = runez.orange
@@ -106,10 +105,6 @@ class GitRunReport:
     def __str__(self):
         return self.representation()
 
-    def __contains__(self, text: str) -> bool:
-        """True if 'text' is mentioned in one of the messages in self._problem"""
-        return bool(text) and any(text in problem for problem in self._problem)
-
     def require_success(self, operation: str) -> GitRunReport:
         if self.has_problems:
             Reporter.abort(self.add(problem=f"<can't {operation}"))
@@ -180,8 +175,6 @@ class BranchUpstream:
 
     remote: str
     branch: str
-    ref: str
-    short_ref: str
 
 
 @dataclass(frozen=True)
@@ -212,7 +205,7 @@ class GitRefs:
         self.upstreams = {}
         lines = parent.checked_git_command_lines(
             "for-each-ref",
-            "--format=%(refname)%09%(HEAD)%09%(upstream:short)%09%(upstream:remotename)%09%(upstream:remoteref)%09%(symref)",
+            "--format=%(refname)%09%(upstream:remotename)%09%(upstream:remoteref)%09%(symref)",
             "refs/heads",
             "refs/remotes",
         )
@@ -220,18 +213,15 @@ class GitRefs:
             self._add_line(line)
 
     def _add_line(self, line: str):
-        fields = (line + "\t" * 5).split("\t")
-        refname, marker, upstream_short, upstream_remote, upstream_ref, symref = fields[:6]
+        fields = (line + "\t" * 3).split("\t")
+        refname, upstream_remote, upstream_ref, symref = fields[:4]
         if refname.startswith(LOCAL_REF_PREFIX):
             local_branch_name = refname[len(LOCAL_REF_PREFIX) :]
             self.local.add(local_branch_name)
-            if marker == "*":
-                self.current = local_branch_name
-                self.detached = False
 
             if upstream_remote and upstream_ref:
                 upstream_branch = upstream_ref[len(LOCAL_REF_PREFIX) :] if upstream_ref.startswith(LOCAL_REF_PREFIX) else upstream_ref
-                upstream = BranchUpstream(remote=upstream_remote, branch=upstream_branch, ref=upstream_ref, short_ref=upstream_short)
+                upstream = BranchUpstream(remote=upstream_remote, branch=upstream_branch)
                 self.upstreams[local_branch_name] = upstream
 
         elif refname.startswith(REMOTE_REF_PREFIX):
@@ -315,7 +305,7 @@ class GitDir:
         )
 
     def represented_current_branch(self) -> str:
-        branch = self.refs.current or self.status.head or "HEAD"
+        branch = self.refs.current
         if self.is_orphan_branch(self.refs.current):
             icon = " 🪦"
 
@@ -337,10 +327,7 @@ class GitDir:
 
     def branch_details(self, indent="") -> str:
         refs = self.refs
-        branches = sorted(refs.local) or ([refs.current] if refs.current else [])
-        if not branches:
-            return ""
-
+        branches = sorted(refs.local) or [refs.current]
         width = max(len(name) for name in branches)
         result = []
         for name in branches:
@@ -428,15 +415,8 @@ class GitDir:
         if status.report.has_problems:
             return GitRunReport(status.report).cant_pull()
 
-        if not refs.current:
-            return GitRunReport(problem="no remote branch")
-
         if refs.detached:
-            # Untracked HEAD
-            proc = self.run_git_command("checkout", self.default_branch)
-            self.clear_cached_state()
-            if proc.returncode:
-                return git_error_report(proc)
+            return GitRunReport(note="HEAD detached").cant_pull()
 
         note = status.upstream_delta() or "up-to-date"
         proc = self.run_git_command("pull", "--rebase")
@@ -547,14 +527,6 @@ class GitDir:
         trees = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         return len(trees) == 1 and bool(target_tree) and trees[0] == target_tree
 
-    def is_cleanable_merged(self, ref: str, target_ref: str) -> bool:
-        """
-        :param str ref: Candidate ref
-        :param str target_ref: Ref that should already contain the candidate
-        :return bool: True if 'ref' is safely contained in 'target_ref'
-        """
-        return self.is_ancestor(ref, target_ref) or self.merge_is_noop(ref, target_ref)
-
     def cleanable_local_branch(self, name: str, include_current=False) -> CleanableLocalBranch | None:
         """
         :param str name: Local branch name
@@ -574,20 +546,12 @@ class GitDir:
 
         return None
 
-    def is_cleanable_local_branch(self, name: str, include_current=False) -> bool:
-        """
-        :param str name: Local branch name
-        :param bool include_current: If True, allow checking the current branch
-        :return bool: True if local branch is safe to clean
-        """
-        return bool(self.cleanable_local_branch(name, include_current=include_current))
-
     @cached_property
     def local_cleanable_branches(self) -> set[str]:
         """
         :return set: Local branches that can be cleaned
         """
-        return {name for name in self.refs.local if self.is_cleanable_local_branch(name)}
+        return {name for name in self.refs.local if self.cleanable_local_branch(name)}
 
     def stale_tracked_local_branch_cleanups(self) -> list[CleanableLocalBranch]:
         """Local branch cleanup details for branches whose tracked remote branch is gone."""
@@ -601,19 +565,11 @@ class GitDir:
 
         return result
 
-    def stale_tracked_local_branches(self) -> list[str]:
-        """Local branches whose tracked remote branch is gone"""
-        return [cleanup.name for cleanup in self.stale_tracked_local_branch_cleanups()]
-
 
 class GitStatus:
     """Currently modified files"""
 
     def __init__(self, parent: GitDir):
-        self._parent = parent
-        self.commit_id = ""
-        self.head = ""
-        self.upstream = ""
         self.ahead = 0
         self.behind = 0
         self.modified = []
@@ -625,16 +581,7 @@ class GitStatus:
             info = line[2:]
             if prefix == "#":
                 keyword, _, value = info.partition(" ")
-                if keyword == "branch.oid":
-                    self.commit_id = value
-
-                elif keyword == "branch.head":
-                    self.head = value
-
-                elif keyword == "branch.upstream":
-                    self.upstream = value
-
-                elif keyword == "branch.ab":
+                if keyword == "branch.ab":
                     ab = value.partition(" ")
                     self.ahead = int(ab[0])
                     self.behind = -int(ab[2])
@@ -663,12 +610,11 @@ class GitStatus:
     def has_pending_changes(self) -> bool:
         return bool(self.modified or self.untracked)
 
-    def upstream_delta(self, use_icons=False) -> str:
+    def upstream_delta(self) -> str:
         """Short report on divergence from the upstream branch."""
-        ahead, behind = ("🏃", "🚶") if use_icons else (" ahead", " behind")
         return Reporter.joined(
-            self.ahead and f"{self.ahead}{ahead}",
-            self.behind and f"{self.behind}{behind}",
+            self.ahead and f"{self.ahead} ahead",
+            self.behind and f"{self.behind} behind",
         )
 
     def pending_change_counts(self) -> tuple[int, int, int]:

@@ -74,8 +74,8 @@ still deferred.
 
 - `ProjectDir` represents a valid requested workspace as one or more depth-1
   `GitDir` children; scanning aborts immediately if none are present.
-- It provides the workspace header and aligned line prefixes for
-  multi-checkout output.
+- It provides aligned line prefixes for multi-checkout output; commands do not
+  print a standalone workspace header.
 - The old `MgitPreferences` object and Stash/GitHub/unknown remote grouping
   were removed. URL parsing can be modeled later where clone/config behavior
   actually needs it.
@@ -110,6 +110,11 @@ markers such as `✅`, `☑️`, and `🪦` are not passed through text color st
   commands, appending any rendered operation report problem or note. Ambient
   notes for stale fetch age, cleanable local branches, and detached `HEAD` use
   that same report path.
+- Normal status deliberately evaluates cleanup eligibility from currently
+  available local refs and git history without fetching or changing refs or
+  the worktree. The content-equivalence proof uses
+  `git merge-tree --write-tree`, which may write internal git objects while
+  leaving checkout state unchanged.
 - Dirty status lines retain the freshness marker, since freshness and pending
   changes are separate signals; an orphan tombstone supersedes the marker.
   Additional local branches are represented separately as `[+N]`.
@@ -121,7 +126,7 @@ markers such as `✅`, `☑️`, and `🪦` are not passed through text color st
   for live status lines and pre-pull recap notes.
 - `GitStatus` parses `git status --porcelain=v2 --branch`, keeping worktree
   status and structured ahead/behind reporting separate from ref discovery.
-- Cleanable local and remote branches are proven with
+- Cleanable local branches are proven with
   `git merge-base --is-ancestor` against the relevant default branch ref, or by
   using `git merge-tree --write-tree` to prove that merging the branch into the
   default branch would leave the default branch tree unchanged. This catches
@@ -138,8 +143,9 @@ markers such as `✅`, `☑️`, and `🪦` are not passed through text color st
 - `GitRefs` loading of current/local/remote/default branches and exact branch
   upstreams.
 - `GitStatus` parsing of `git status --porcelain=v2 --branch`.
-- The guarded `pull()` behavior that checks remotes, all pending changes
-  (including untracked paths), and status problems directly before pulling.
+- The guarded `pull()` behavior that checks for an attached branch, remotes,
+  all pending changes (including untracked paths), and status problems directly
+  before pulling; it never switches away from detached `HEAD`.
 - Direct-child workspace scanning for multi-repo folders.
 - The default folder behavior: when no folder is supplied, use the current git
   checkout if the current directory is inside one.

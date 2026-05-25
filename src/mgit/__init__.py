@@ -23,11 +23,6 @@ class ProjectDir:
         self.scan()
 
     def scan(self):
-        if (self.path / ".git").is_dir():
-            self.git_dirs = [GitDir(self.path)]
-            self.name_size = None
-            return
-
         self.git_dirs = [
             GitDir(source_path)
             for source_path in self.path.iterdir()
@@ -36,14 +31,6 @@ class ProjectDir:
         self.git_dirs = sorted(self.git_dirs, key=lambda x: x.basename)
         Reporter.abort_if(not self.git_dirs, f"{runez.short(self.path)}: no git folders")
         self.name_size = min(36, max(len(git.basename) for git in self.git_dirs)) if len(self.git_dirs) > 1 else None
-
-    @property
-    def header(self):
-        return f"{Reporter.workspace_path(runez.short(self.path))}:"
-
-    def print_header(self):
-        if len(self.git_dirs) != 1:
-            print(self.header)
 
     def prefixed_line(self, git: GitDir, line: str) -> str:
         name = git.basename

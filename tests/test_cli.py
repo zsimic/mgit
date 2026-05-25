@@ -130,6 +130,7 @@ def test_branches_workspace_lists_local_branches(cli, git):
     cli.run("branches workspace")
 
     assert cli.succeeded
+    assert "workspace:" not in cli.logged
     assert "one:" in cli.logged
     assert "two:" in cli.logged
     assert "* topic" in cli.logged
@@ -184,6 +185,8 @@ def test_pull_workspace_recaps_each_checkout(cli, git):
     bar_source = git.seeded_set("bar-source")
     foo = git.clone(foo_source.remote_url, "workspace/foo")
     git.clone(bar_source.remote_url, "workspace/bar-baz")
+    detached = git.clone(foo_source.remote_url, "workspace/detached")
+    detached.checkout("--detach", "HEAD")
     git.init("workspace/broken")
     foo_source.seed.commit_file("next.txt", "next", "next")
     foo_source.seed.push()
@@ -191,6 +194,7 @@ def test_pull_workspace_recaps_each_checkout(cli, git):
 
     cli.run("workspace")
     assert cli.succeeded
+    assert "workspace:" not in cli.logged
     assert "foo: main ✅ 1 behind" in cli.logged
 
     cli.run("fetch workspace")
@@ -201,12 +205,20 @@ def test_pull_workspace_recaps_each_checkout(cli, git):
     assert "foo: main ✅ was 1 behind" in cli.logged
     assert "bar-baz: main ✅ was up-to-date" in cli.logged
     assert "broken: main ✅ can't pull; no remotes" in cli.logged
+    assert "detached: HEAD ✅ can't pull; HEAD detached" in cli.logged
+    assert "HEAD detached; HEAD detached" not in cli.logged
     assert foo.run_git("rev-parse", "HEAD") == foo.run_git("rev-parse", "origin/main")
+    assert detached.current_branch == ""
 
     # Single fails with exit code != 0
     cli.run("pull workspace/broken")
     assert cli.failed
     assert "can't pull; no remotes" in cli.logged
+
+    cli.run("pull workspace/detached")
+    assert cli.failed
+    assert "can't pull; HEAD detached" in cli.logged
+    assert detached.current_branch == ""
 
 
 def test_pull_refuses_untracked_changes(cli, git):

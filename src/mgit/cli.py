@@ -129,7 +129,6 @@ class StatusCommand(FolderTargetCommand):
             print(details)
 
     def run_multi(self, project_dir: ProjectDir):
-        project_dir.print_header()
         for git in project_dir.git_dirs:
             print(project_dir.prefixed_line(git, git.status_line()))
 
@@ -148,7 +147,6 @@ class FetchCommand(FolderTargetCommand):
             print(details)
 
     def run_multi(self, project_dir: ProjectDir):
-        project_dir.print_header()
         for git in project_dir.git_dirs:
             report = git.fetch_now()
             print(project_dir.prefixed_line(git, git.status_line(report)))
@@ -168,7 +166,6 @@ class PullCommand(FolderTargetCommand):
             print(details)
 
     def run_multi(self, project_dir: ProjectDir):
-        project_dir.print_header()
         for git in project_dir.git_dirs:
             report = git.pull()
             print(project_dir.prefixed_line(git, git.status_line(report)))
@@ -200,7 +197,6 @@ class BranchesCommand(FolderTargetCommand):
             print(details)
 
     def run_multi(self, project_dir: ProjectDir):
-        project_dir.print_header()
         show_names = len(project_dir.git_dirs) > 1
         for git in project_dir.git_dirs:
             if show_names:
