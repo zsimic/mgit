@@ -10,22 +10,22 @@ should continue to evolve.
 `GitDir` is used for one command run and lazily captures git state that can
 otherwise require repeated subprocess calls.
 
-- `GitDir.default_branch`: The default branch selected for the command run.
-  Once selected, it should remain stable while a command proceeds, including
-  while `groom` checks out, pulls, and deletes branches. A newly fetched
-  `origin/HEAD` could influence the initial selection if this property has not
-  yet been read.
-
-- `GitDir.status`: A `GitStatus` snapshot produced from
+- `GitDir.lazy_status`: A `GitStatus` snapshot produced from
   `git status --porcelain=v2 --branch`. It includes pending changes and
-  upstream ahead/behind information.
+  upstream ahead/behind information. It does not classify ref-derived
+  conditions such as a gone upstream; command flows combine that information
+  with `GitRefs` where needed.
 
-- `GitDir.refs`: A `GitRefs` snapshot of the current branch, local branches,
+- `GitDir.lazy_refs`: A `GitRefs` snapshot of the current branch, local branches,
   configured remotes, remote-tracking branches, remote default branches, and
   upstream configuration.
 
+- `GitRefs.default_branch`: The default branch derived for a particular refs
+  snapshot, preferring `origin/HEAD` and falling back to a visible `main` or
+  `master` branch.
+
 - `GitRefs.orphan_branches`: Derived cached data owned by a particular
-  `GitRefs` snapshot. It is discarded naturally when `GitDir.refs` is
+  `GitRefs` snapshot. It is discarded naturally when `GitDir.lazy_refs` is
   replaced, so it must not be invalidated separately.
 
 ## Invalidation Requirements
@@ -40,19 +40,14 @@ The operations below may run during one lifetime of a `GitDir` instance:
 | delete local branch | unchanged in the `groom` flow | stale | The local branch collection changes; deletion occurs after checkout. |
 | delete remote branch | unchanged in the `groom` flow | stale | The remote-tracking branch collection changes. |
 
-`default_branch` is deliberately not listed as transient state to clear after
-these operations: it is the command run's chosen target branch. Fetch should
-occur before its first access in any flow that wants freshly observed remote
-default-branch information.
+`default_branch` and `orphan_branches` share the lifetime of their owning
+`GitRefs` snapshot. Replacing stale `refs` naturally recomputes both from the
+fresh snapshot.
 
 ## Current Implementation Note
 
-`GitDir.clear_cached_state()` currently discards every cached property on
-`GitDir`. This is broader than the invalidation requirements above and clears
-`default_branch` unnecessarily. Also, `fetch_now()` currently updates `age`
-without clearing an already materialized `status` or `refs` snapshot; existing
-command flows rely on fetching before reading them.
-
-A follow-up refactor should replace the generic reset with explicit
-invalidation of `status` and `refs` at the mutation points above, including
-`fetch_now()`.
+`GitDir.lazy_status` and `GitDir.lazy_refs` are ordinary lazy properties backed by
+`_status` and `_refs`. State-changing `GitDir` methods explicitly set the
+affected backing field to `None` according to the table above. This keeps
+invalidation local to the operation that makes a snapshot stale and avoids a
+generic cache reset.

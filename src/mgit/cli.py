@@ -140,7 +140,7 @@ class FetchCommand(FolderTargetCommand):
     short_name = "f"
 
     def run_single(self, git: GitDir):
-        report = git.fetch_now().require_success("fetch")
+        report = git.fetch_now(abort_on_failure=True)
         print(git.status_line(report))
         details = git.status_details()
         if details:
@@ -159,7 +159,7 @@ class PullCommand(FolderTargetCommand):
     short_name = "p"
 
     def run_single(self, git: GitDir):
-        report = git.pull().require_success("pull")
+        report = git.pull(abort_on_failure=True).require_success("pull")
         print(git.status_line(report))
         details = git.status_details()
         if details:
@@ -192,7 +192,7 @@ class BranchesCommand(FolderTargetCommand):
     short_name = "b"
 
     def run_single(self, git: GitDir):
-        details = git.branch_details()
+        details = git.lazy_refs.branch_details()
         if details:
             print(details)
 
@@ -203,7 +203,7 @@ class BranchesCommand(FolderTargetCommand):
                 print(f"{git.basename}:")
 
             indent = "  " if show_names else ""
-            details = git.branch_details(indent=indent)
+            details = git.lazy_refs.branch_details(indent=indent)
             if details:
                 print(details)
 
@@ -214,61 +214,37 @@ class GroomCommand(FolderTargetCommand):
 
     short_name = "g"
 
-    def _checkout_default_branch(self, git: GitDir, branch: str):
-        git.checked_git_command("checkout", branch)
-        git.clear_cached_state()
-        print(f"Checked out {git.represented_branch(branch)} branch")
-
-    def _delete_local_branch(self, git: GitDir, cleanup):
-        args = ["branch", "--delete", cleanup.name]
-        if cleanup.force_delete:
-            args.insert(2, "--force")
-
-        git.checked_git_command(*args)
-        print(f"Deleted branch {git.represented_branch(cleanup.name)}")
-        git.clear_cached_state()
-
-    def _delete_remote_branch(self, git: GitDir, cleanup):
-        branch_ref = f"refs/heads/{cleanup.branch}"
-        git.checked_git_command(
-            "push",
-            f"--force-with-lease={branch_ref}:{cleanup.expected_oid}",
-            "--delete",
-            cleanup.remote,
-            branch_ref,
-        )
-        print(f"Deleted remote branch {cleanup.remote}/{git.represented_branch(cleanup.branch)}")
-        git.clear_cached_state()
-
     def run_single(self, git: GitDir):
-        report = git.fetch_now().require_success("groom")
-        refs = git.refs
+        report = git.fetch_now(abort_on_failure=True)
+        refs = git.lazy_refs
         current_branch = refs.current
-        default_branch = git.default_branch
+        default_branch = refs.default_branch
         if current_branch == default_branch:
             report.add(note="already on default branch")
             print(git.status_line(report))
             return
 
-        git.status.require_clean("groom")
+        git.lazy_status.require_clean("groom")
         local_cleanup = git.cleanable_local_branch(current_branch, include_current=True)
         if not local_cleanup:
-            Reporter.abort(f"Branch {git.represented_branch(current_branch)} can't be cleaned")
+            Reporter.abort(f"Branch {refs.represented_branch(current_branch)} can't be cleaned")
 
         upstream = refs.upstreams.get(current_branch)
         remote_cleanup = None
         if upstream and refs.has_remote_branch(upstream.remote, upstream.branch):
             remote_cleanup = git.cleanable_current_remote_branch()
             if not remote_cleanup:
-                Reporter.abort(f"Remote branch {upstream.remote}/{git.represented_branch(upstream.branch)} can't be cleaned automatically")
+                Reporter.abort(f"Remote branch {upstream.remote}/{refs.represented_branch(upstream.branch)} can't be cleaned automatically")
 
-        self._checkout_default_branch(git, default_branch)
-        report = git.pull().require_success("groom")
-        git.clear_cached_state()
+        git.checkout_default_branch()
+        print(f"Checked out {git.lazy_refs.represented_branch(default_branch)} branch")
+        report = git.pull(abort_on_failure=True).require_success("groom")
         if remote_cleanup:
-            self._delete_remote_branch(git, remote_cleanup)
+            git.delete_remote_branch(remote_cleanup)
+            print(f"Deleted remote branch {remote_cleanup.remote}/{git.lazy_refs.represented_branch(remote_cleanup.branch)}")
 
-        self._delete_local_branch(git, local_cleanup)
+        git.delete_local_branch(local_cleanup)
+        print(f"Deleted branch {git.lazy_refs.represented_branch(local_cleanup.name)}")
         print(git.status_line(report))
 
 

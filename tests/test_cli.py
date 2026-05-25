@@ -64,6 +64,9 @@ def test_single_status_shows_pending_paths_and_discovers_parent_checkout(cli, gi
     assert "README.md" in cli.logged
     assert "new.txt" in cli.logged
 
+    cli.run("fetch repo")
+    assert cli.succeeded
+
     (repo.cwd / "foo").mkdir()
     os.chdir(repo.cwd / "foo")
     cli.run()
@@ -168,9 +171,9 @@ def test_branch_names_are_styled_consistently(cli, git):
     repo.checkout("topic")
     repo.push("origin", "--delete", "orphan")
     with runez.ActivateColors(True):
-        default_name = runez.green(runez.bold("main"))
+        default_name = runez.bold(runez.green("main"))
         topic_name = runez.bold("topic")
-        orphan_name = runez.orange(runez.bold("orphan"))
+        orphan_name = runez.bold(runez.orange("orphan"))
 
     cli.run("--color always branches repo")
     assert cli.succeeded
@@ -254,19 +257,60 @@ def test_pull_refuses_untracked_changes(cli, git):
     assert "can't pull; pending changes" in cli.logged
 
 
-def test_pull_failure_retains_previous_status_note(cli, git):
+def test_pull_refuses_branch_with_gone_upstream(cli, git):
+    repo = git.seeded("repo")
+    repo.checkout("-b", "gone")
+    repo.push("-u", "origin", "gone")
+    repo.checkout("main")
+    repo.push("origin", "--delete", "gone")
+    repo.checkout("gone")
+
+    cli.run("pull repo")
+
+    assert cli.failed
+    assert "can't pull; remote branch gone" in cli.logged
+
+
+def test_single_pull_failure_shows_full_git_error(cli, git):
     repo = git.seeded("repo")
     repo.remote("set-url", "origin", "missing.git")
 
     cli.run("pull repo")
 
     assert cli.failed
-    assert "can't pull" in cli.logged
-    assert "was up-to-date" in cli.logged
+    assert "git pull --rebase failed:" in cli.logged
+    assert "fatal: 'missing.git' does not appear to be a git repository" in cli.logged
+    assert "Please make sure you have the correct access rights" in cli.logged
+
+
+def test_workspace_pull_failure_is_compact(cli, git):
+    source = git.seeded_set("source")
+    repo = git.clone(source.remote_url, "workspace/repo")
+    repo.remote("set-url", "origin", "missing.git")
+
+    cli.run("pull workspace")
+
+    assert cli.succeeded
+    assert "repo: main ✅ can't pull; 'missing.git' does not appear to be a git repository; was up-to-date" in cli.logged
+    assert "fatal:" not in cli.logged
+    assert "Please make sure" not in cli.logged
 
 
 def test_main_checks_out_default_branch(cli, git):
     repo = git.init("repo")
+    repo.checkout("-b", "feature")
+
+    cli.run("m repo")
+
+    assert cli.succeeded
+    assert repo.current_branch == "main"
+
+
+def test_main_prefers_main_over_master_without_remote_head(cli, git):
+    repo = git.seeded("repo")
+    repo.branch("master")
+    repo.push("origin", "master")
+    repo.run_git("remote", "set-head", "origin", "--delete")
     repo.checkout("-b", "feature")
 
     cli.run("m repo")
