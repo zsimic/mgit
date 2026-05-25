@@ -251,12 +251,12 @@ class GroomCommand(FolderTargetCommand):
             return
 
         git.status.require_clean("groom")
-        remote_cleanup = None
         local_cleanup = git.cleanable_local_branch(current_branch, include_current=True)
         if not local_cleanup:
             Reporter.abort(f"Branch {git.represented_branch(current_branch)} can't be cleaned")
 
         upstream = refs.upstreams.get(current_branch)
+        remote_cleanup = None
         if upstream and refs.has_remote_branch(upstream.remote, upstream.branch):
             remote_cleanup = git.cleanable_current_remote_branch()
             if not remote_cleanup:

@@ -252,6 +252,17 @@ class GitRefs:
         upstream = self.upstreams.get(branch or self.current)
         return bool(upstream and not self.has_remote_branch(upstream.remote, upstream.branch))
 
+    @cached_property
+    def orphan_branches(self) -> list[str]:
+        """Local branch names that were deleted on their corresponding remote."""
+        result = []
+        for name in sorted(self.local):
+            upstream = self.upstreams.get(name)
+            if not upstream or not self.has_remote_branch(upstream.remote, upstream.branch):
+                result.append(name)
+
+        return result
+
 
 class GitDir:
     """Model a local git repo"""
@@ -294,7 +305,7 @@ class GitDir:
             report.add(note=f"⌛{runez.represented_duration(self.age)}")
 
         other_branches = refs.local - {refs.current, self.default_branch}
-        cleanable = len(other_branches & self.local_cleanable_branches)
+        cleanable = len(other_branches & self._local_cleanable_branches())
         remaining = len(other_branches) - cleanable
         branch_summary = Reporter.joined(cleanable and f"+{cleanable}🪦", remaining and f"+{remaining}", separator="")
         if branch_summary:
@@ -326,7 +337,8 @@ class GitDir:
 
     def status_details(self, indent="  ") -> str:
         result = []
-        orphan_branches = [branch for branch in self.orphan_branches if branch != self.refs.current and self.is_orphan_branch(branch)]
+        refs = self.refs
+        orphan_branches = [branch for branch in refs.orphan_branches if branch != refs.current and self.is_orphan_branch(branch)]
         if orphan_branches:
             result.append(f"Orphan branches: {', '.join(self.represented_branch(branch) for branch in orphan_branches)}")
 
@@ -470,25 +482,13 @@ class GitDir:
     def refs(self) -> GitRefs:
         return GitRefs(self)
 
-    @cached_property
-    def orphan_branches(self) -> list[str]:
-        """Local branch names that were deleted on their corresponding remote"""
-        result = []
-        refs = self.refs
-        for name in sorted(refs.local):
-            upstream = refs.upstreams.get(name)
-            if not upstream or not refs.has_remote_branch(upstream.remote, upstream.branch):
-                result.append(name)
-
-        return result
-
     def is_protected_branch(self, name: str) -> bool:
         """True if branch should not be cleaned or reported as orphaned"""
         return bool(name and (name == self.default_branch or name in self.refs.default_branches.values()))
 
     def is_orphan_branch(self, name: str) -> bool:
         """True if branch is an unprotected orphan."""
-        return bool(name and name in self.orphan_branches and not self.is_protected_branch(name))
+        return bool(name and name in self.refs.orphan_branches and not self.is_protected_branch(name))
 
     def represented_branch(self, name: str) -> str:
         """Styled representation of a branch name."""
@@ -500,16 +500,6 @@ class GitDir:
             return runez.orange(result)
 
         return result
-
-    @cached_property
-    def cleanable_base_ref(self) -> str:
-        """Ref that cleanup candidates must already be merged into"""
-        base_ref = self.default_branch
-        remote_branches = self.refs.by_remote.get("origin")
-        if remote_branches and base_ref in remote_branches:
-            base_ref = f"origin/{base_ref}"
-
-        return base_ref
 
     def is_ancestor(self, ref: str, target_ref: str) -> bool:
         """
@@ -523,9 +513,9 @@ class GitDir:
 
     def merge_is_noop(self, ref: str, target_ref: str) -> bool:
         """
-        :param str ref: Candidate ref
+        :param str ref: Candidate `ref`
         :param str target_ref: Ref that should already contain the candidate content
-        :return bool: True if merging 'ref' into 'target_ref' would leave 'target_ref' unchanged
+        :return bool: True if merging 'ref' into `target_ref` would leave `target_ref` unchanged
         """
         target_tree = self.checked_git_command("rev-parse", f"{target_ref}^{{tree}}")
         proc = self.run_git_command("merge-tree", "--write-tree", "--no-messages", target_ref, ref)
@@ -541,7 +531,7 @@ class GitDir:
         :param bool include_current: If True, allow checking the current branch
         :return CleanableLocalBranch|None: Cleanup details if local branch is safe to clean
         """
-        base_ref = self.cleanable_base_ref
+        base_ref = self._cleanable_base_ref()
         refs = self.refs
         if not base_ref or not name or self.is_protected_branch(name) or (not include_current and name == refs.current):
             return None
@@ -576,11 +566,17 @@ class GitDir:
         expected_oid = self.checked_git_command("rev-parse", branch_ref)
         return CleanableRemoteBranch(upstream.remote, upstream.branch, expected_oid)
 
-    @cached_property
-    def local_cleanable_branches(self) -> set[str]:
-        """
-        :return set: Local branches that can be cleaned
-        """
+    def _cleanable_base_ref(self) -> str:
+        """Ref that cleanup candidates must already be merged into"""
+        base_ref = self.default_branch
+        remote_branches = self.refs.by_remote.get("origin")
+        if remote_branches and base_ref in remote_branches:
+            base_ref = f"origin/{base_ref}"
+
+        return base_ref
+
+    def _local_cleanable_branches(self) -> set[str]:
+        """Local branches that can be cleaned"""
         return {name for name in self.refs.local if self.cleanable_local_branch(name)}
 
 
