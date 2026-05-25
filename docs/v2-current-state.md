@@ -72,10 +72,10 @@ still deferred.
 
 `src/mgit/__init__.py` now holds only the lightweight workspace container:
 
-- `ProjectDir` represents the requested folder as a collection of zero or more
-  depth-1 `GitDir` children.
-- It keeps the workspace/no-repos header rule and provides aligned line prefixes
-  for multi-checkout output.
+- `ProjectDir` represents a valid requested workspace as one or more depth-1
+  `GitDir` children; scanning aborts immediately if none are present.
+- It provides the workspace header and aligned line prefixes for
+  multi-checkout output.
 - The old `MgitPreferences` object and Stash/GitHub/unknown remote grouping
   were removed. URL parsing can be modeled later where clone/config behavior
   actually needs it.
@@ -84,6 +84,9 @@ still deferred.
 status and branch rendering now lives on `GitDir` via `status_line()`,
 `status_details()`, and `branch_details()`. The detail methods return complete
 multi-line display blocks, leaving commands to decide when to print them.
+Branch names are always bold in status, branch displays, and successful action
+output, with default branches green and orphaned branches orange. Status
+markers such as `✅`, `☑️`, and `🪦` are not passed through text color styles.
 
 `src/mgit/git.py` holds most git-specific behavior:
 
@@ -102,10 +105,20 @@ multi-line display blocks, leaving commands to decide when to print them.
   `GitDir` is created. Successful fetch and pull operations update it directly.
 - `fetch` commands use `GitDir.fetch_now()` directly; the earlier conditional
   fetch helper has been removed.
-- `GitDir.status_line()` composes the compact one-line branch/freshness/status
-  output used by single and workspace status-like commands.
+- `GitDir.status_line(report=None)` composes the compact one-line
+  branch/freshness/status output used by single and workspace status-like
+  commands, appending any rendered operation report problem or note. Ambient
+  notes for stale fetch age, cleanable local branches, and detached `HEAD` use
+  that same report path.
+- Dirty status lines retain the freshness marker, since freshness and pending
+  changes are separate signals; an orphan tombstone supersedes the marker.
+  Additional local branches are represented separately as `[+N]`.
 - `GitDir.status_details()` and `GitDir.branch_details()` compose the indented
   expanded displays used only where a command requests detail output.
+- Successful `GitDir.pull()` reports use note messages such as `was 1 behind`
+  or `was up-to-date`, so their status-line recap uses note styling.
+- `GitStatus.upstream_delta()` supplies shared compact upstream-divergence text
+  for live status lines and pre-pull recap notes.
 - `GitStatus` parses `git status --porcelain=v2 --branch`, keeping worktree
   status and structured ahead/behind reporting separate from ref discovery.
 - Cleanable local and remote branches are proven with
@@ -125,8 +138,8 @@ multi-line display blocks, leaving commands to decide when to print them.
 - `GitRefs` loading of current/local/remote/default branches and exact branch
   upstreams.
 - `GitStatus` parsing of `git status --porcelain=v2 --branch`.
-- The guarded `pull()` behavior that refuses when there are pending changes or
-  status problems.
+- The guarded `pull()` behavior that checks remotes, all pending changes
+  (including untracked paths), and status problems directly before pulling.
 - Direct-child workspace scanning for multi-repo folders.
 - The default folder behavior: when no folder is supplied, use the current git
   checkout if the current directory is inside one.
@@ -137,8 +150,8 @@ multi-line display blocks, leaving commands to decide when to print them.
   literal branch name.
 - `groom` is local-only and currently single-repo only. When run from a
   non-default branch, it refuses to switch branches unless the current branch is
-  also cleanable. `groom` now owns its step-by-step output directly rather than
-  rendering a composed final `GitRunReport` status line.
+  also cleanable. `groom` owns its step-by-step output directly and renders its
+  final pull recap through `GitDir.status_line(pull_report)`.
 
 ## Remaining Work
 

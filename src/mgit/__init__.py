@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class ProjectDir:
-    """One requested folder, represented as zero or more git dirs."""
+    """One requested workspace, represented as one or more git dirs."""
 
     def __init__(self, path: Path):
         """
@@ -34,13 +34,12 @@ class ProjectDir:
             if not source_path.name.startswith(".") and source_path.is_dir() and (source_path / ".git").is_dir()
         ]
         self.git_dirs = sorted(self.git_dirs, key=lambda x: x.basename)
+        Reporter.abort_if(not self.git_dirs, f"{runez.short(self.path)}: no git folders")
         self.name_size = min(36, max(len(git.basename) for git in self.git_dirs)) if len(self.git_dirs) > 1 else None
 
     @property
     def header(self):
-        text = f"{Reporter.workspace_path(runez.short(self.path))}:"
-        Reporter.abort_if(not self.git_dirs, f"{text} no git folders")
-        return text
+        return f"{Reporter.workspace_path(runez.short(self.path))}:"
 
     def print_header(self):
         if len(self.git_dirs) != 1:

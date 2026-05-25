@@ -90,22 +90,6 @@ class FolderTargetCommand(CliCommand):
 
         return self.run_multi(target)
 
-    @staticmethod
-    def status_suffix(text: str | None) -> str:
-        return f" ({text})" if text else ""
-
-    @staticmethod
-    def print_status(git: GitDir, suffix: str | None = None, show_details=True):
-        print(f"{git.status_line()}{FolderTargetCommand.status_suffix(suffix)}")
-        if show_details:
-            details = git.status_details()
-            if details:
-                print(details)
-
-    @staticmethod
-    def print_project_status(project_dir: ProjectDir, git: GitDir, suffix: str | None = None):
-        print(project_dir.prefixed_line(git, f"{git.status_line()}{FolderTargetCommand.status_suffix(suffix)}"))
-
     @abstractmethod
     def run_single(self, git: GitDir):
         """Run this command for one git dir."""
@@ -147,7 +131,7 @@ class StatusCommand(FolderTargetCommand):
     def run_multi(self, project_dir: ProjectDir):
         project_dir.print_header()
         for git in project_dir.git_dirs:
-            self.print_project_status(project_dir, git)
+            print(project_dir.prefixed_line(git, git.status_line()))
 
 
 @cli_command
@@ -157,15 +141,17 @@ class FetchCommand(FolderTargetCommand):
     short_name = "f"
 
     def run_single(self, git: GitDir):
-        git.fetch_now().require_success("fetch")
-        self.print_status(git, "fetched")
+        report = git.fetch_now().require_success("fetch")
+        print(git.status_line(report))
+        details = git.status_details()
+        if details:
+            print(details)
 
     def run_multi(self, project_dir: ProjectDir):
         project_dir.print_header()
         for git in project_dir.git_dirs:
             report = git.fetch_now()
-            suffix = report.representation() if report.has_problems else "fetched"
-            self.print_project_status(project_dir, git, suffix)
+            print(project_dir.prefixed_line(git, git.status_line(report)))
 
 
 @cli_command
@@ -174,32 +160,18 @@ class PullCommand(FolderTargetCommand):
 
     short_name = "p"
 
-    @staticmethod
-    def pull_summary(git: GitDir) -> str:
-        status = git.status
-        parts = []
-        if status.behind:
-            parts.append(f"was behind {status.behind}")
-
-        if status.ahead:
-            parts.append(f"was ahead {status.ahead}")
-
-        return ", ".join(parts) or "was up-to-date"
-
     def run_single(self, git: GitDir):
-        suffix = self.pull_summary(git)
-        git.pull().require_success("pull")
-        self.print_status(git, suffix)
+        report = git.pull().require_success("pull")
+        print(git.status_line(report))
+        details = git.status_details()
+        if details:
+            print(details)
 
     def run_multi(self, project_dir: ProjectDir):
         project_dir.print_header()
         for git in project_dir.git_dirs:
-            suffix = self.pull_summary(git)
             report = git.pull()
-            if report.has_problems:
-                suffix = report.representation()
-
-            self.print_project_status(project_dir, git, suffix)
+            print(project_dir.prefixed_line(git, git.status_line(report)))
 
 
 @cli_command
@@ -209,9 +181,11 @@ class MainCommand(FolderTargetCommand):
     short_name = "m"
 
     def run_single(self, git: GitDir):
-        report = git.checkout_default_branch()
-        report.require_success("checkout default branch")
-        self.print_status(git, report.representation())
+        report = git.checkout_default_branch().require_success("checkout default branch")
+        print(git.status_line(report))
+        details = git.status_details()
+        if details:
+            print(details)
 
 
 @cli_command
@@ -250,7 +224,7 @@ class GroomCommand(FolderTargetCommand):
         if proc.returncode:
             Reporter.abort(f"can't groom: checkout {branch} failed: {git_error_message(proc)}")
 
-        print(f"Checked out {branch} branch")
+        print(f"Checked out {git.represented_branch(branch)} branch")
 
     def _delete_stale_local_branches(self, git: GitDir):
         cleanups = git.stale_tracked_local_branch_cleanups()
@@ -268,7 +242,7 @@ class GroomCommand(FolderTargetCommand):
                 Reporter.abort(f"can't groom: couldn't delete '{cleanup.name}': {git_error_message(proc)}")
 
             else:
-                print(f"Deleted branch {cleanup.name}")
+                print(f"Deleted branch {git.represented_branch(cleanup.name)}")
 
         git.clear_cached_state()
 
@@ -283,15 +257,15 @@ class GroomCommand(FolderTargetCommand):
             Reporter.abort(f"can't groom: current branch can't be cleaned: {current_branch}")
 
         if current_branch == default_branch:
-            print(f"Already on {default_branch} branch")
+            print(f"Already on {git.represented_branch(default_branch)} branch")
 
         else:
             self._checkout_default_branch(git, default_branch)
 
-        git.pull().require_success("groom")
+        report = git.pull().require_success("groom")
         git.clear_cached_state()
         self._delete_stale_local_branches(git)
-        print(git.status_line())
+        print(git.status_line(report))
 
 
 class CommandHelpFormatter(argparse.HelpFormatter):

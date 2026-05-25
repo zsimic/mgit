@@ -14,13 +14,17 @@ def test_groom_deletes_stale_tracked_branch(cli, git):
     make_stale_tracked_branch(work)
 
     cli.run("g work")
-
     assert cli.succeeded
     assert "Checked out main branch" in cli.logged
     assert "Deleted branch stale" in cli.logged
-    assert "main ✅" in cli.logged
+    assert "main ✅ was up-to-date" in cli.logged
     assert work.current_branch == "main"
     assert not work.has_branch("stale")
+
+    # 2nd groom: no-op
+    cli.run("g work")
+    assert cli.succeeded
+    assert "Already on main branch" in cli.logged
 
 
 def test_groom_refuses_pending_changes(cli, git):

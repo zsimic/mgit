@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mgit.git import GitRunReport
+from mgit.git import GitRunReport, Reporter
 
 
 def check_sorting(given: GitRunReport | str, expected, max_chars=120):
@@ -47,6 +47,12 @@ def test_reporting():
     report.add(note="n1").add(note="<n2")
     report.add(progress="p1").add(progress="p2").add(progress="<p3")
     check_sorting(report, "prob1; p3; p1; p2; n2; n1")
+
+
+def test_joining_display_fragments():
+    assert Reporter.joined("main", None, "", False, 0, ["✅", "", "0"]) == "main ✅ 0"
+    assert Reporter.joined("main", GitRunReport(), GitRunReport(note="note")) == "main note"
+    assert Reporter.joined_lines(["first", "", None, ["second", 0]], header="header", indent="  ") == "header\n  first\n  second"
 
 
 def test_truncating():

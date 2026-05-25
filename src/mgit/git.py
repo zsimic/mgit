@@ -19,11 +19,8 @@ class Reporter:
 
     log = logging.getLogger("mgit")
 
-    branch_current = runez.bold
-    branch_default = runez.teal
+    branch_default = runez.green
     branch_orphaned = runez.orange
-    command = runez.bold
-    ok = runez.teal
     problem = runez.red
     note = runez.purple
     progress = runez.plain
@@ -31,6 +28,17 @@ class Reporter:
     index_change = runez.teal
     worktree_change = runez.red
     untracked_change = runez.orange
+
+    @staticmethod
+    def joined(*args, separator=" "):
+        """Join non-false-ish display fragments."""
+        return runez.joined(*args, delimiter=separator, keep_empty=None)
+
+    @staticmethod
+    def joined_lines(*args, header="", indent="", separator="\n"):
+        """Join non-false-ish display lines with optional header and indentation."""
+        lines = [f"{indent}{line}" for line in runez.flattened(args, keep_empty=None)]
+        return Reporter.joined(header, lines, separator=separator)
 
     @staticmethod
     def abort(message, exit_code: int = 1) -> NoReturn:
@@ -102,14 +110,9 @@ class GitRunReport:
         """True if 'text' is mentioned in one of the messages in self._problem"""
         return bool(text) and any(text in problem for problem in self._problem)
 
-    def require_success(self, operation: str):
+    def require_success(self, operation: str) -> GitRunReport:
         if self.has_problems:
             Reporter.abort(self.add(problem=f"<can't {operation}"))
-
-    def cant_groom(self, reason=None):
-        self.add(problem="<can't groom")
-        if reason:
-            self.add(problem=reason)
 
         return self
 
@@ -242,9 +245,6 @@ class GitRefs:
                 else:
                     self.by_remote.setdefault(remote, set()).add(branch)
 
-    def has_remote(self, remote: str) -> bool:
-        return remote in self.remotes
-
     def has_remote_branch(self, remote: str, branch: str) -> bool:
         remote_branches = self.by_remote.get(remote)
         return bool(remote_branches and (branch in remote_branches))
@@ -265,16 +265,11 @@ class GitDir:
         self.basename = path.name
         self.age = self._current_age()
 
-    @staticmethod
-    def _branch_annotations(name, default_branch, orphan_branches, is_protected):
-        annotations = []
-        if name == default_branch:
-            annotations.append(Reporter.branch_default("[default]"))
-
-        if name in orphan_branches and not is_protected:
-            annotations.append(Reporter.branch_orphaned("[orphaned]"))
-
-        return annotations
+    def _branch_annotations(self, name):
+        return Reporter.joined(
+            name == self.default_branch and Reporter.branch_default("[default]"),
+            self.is_orphan_branch(name) and Reporter.branch_orphaned("[orphaned]"),
+        )
 
     @staticmethod
     def _detail_lines(items, state_style, worktree_style=None) -> list[str]:
@@ -291,67 +286,54 @@ class GitDir:
 
         return lines
 
-    @staticmethod
-    def _short_age(age: int) -> str:
-        if age < runez.date.SECONDS_IN_ONE_MINUTE:
-            return f"{age}s"
-
-        if age < runez.date.SECONDS_IN_ONE_HOUR:
-            return f"{age // runez.date.SECONDS_IN_ONE_MINUTE}m"
-
-        if age < runez.date.SECONDS_IN_ONE_DAY:
-            return f"{age // runez.date.SECONDS_IN_ONE_HOUR}h"
-
-        return f"{age // runez.date.SECONDS_IN_ONE_DAY}d"
-
-    def status_line(self) -> str:
+    def status_line(self, report: GitRunReport | None = None) -> str:
         refs = self.refs
         status = self.status
-        branch = refs.current or status.head or "HEAD"
-        if len(refs.local) > 1:
-            branch += f"+{len(refs.local) - 1}"
+        edits, deletes, new = status.pending_change_counts()
+        report = GitRunReport(report)
+        if self.age is not None and self.age > FRESHNESS_THRESHOLD:
+            report.add(note=f"⌛{runez.represented_duration(self.age)}")
 
-        result = [Reporter.branch_current(branch)]
-        if refs.current in self.orphan_branches and not self.is_protected_branch(refs.current):
-            result.append(Reporter.branch_orphaned("🪦"))
+        cleanable = sorted(self.local_cleanable_branches)
+        if len(cleanable) == 1:
+            report.add(note=f"can prune local branch {self.represented_branch(cleanable[0])}")
+
+        elif cleanable:
+            report.add(note=f"{runez.plural(cleanable, 'local branch')} can be pruned")
+
+        if refs.detached:
+            report.add(note="HEAD detached")
+
+        return Reporter.joined(
+            self.represented_current_branch(),
+            len(refs.local) > 1 and f"[+{len(refs.local) - 1}]",
+            status.upstream_delta(),
+            edits and f"✏️{edits}",
+            deletes and f"🗑️{deletes}",
+            new and f"🆕{new}",
+            report,
+        )
+
+    def represented_current_branch(self) -> str:
+        branch = self.refs.current or self.status.head or "HEAD"
+        if self.is_orphan_branch(self.refs.current):
+            icon = " 🪦"
 
         else:
-            is_fresh = not status.has_pending_changes and self.age is not None and self.age <= FRESH_FETCH_THRESHOLD
-            result.append(Reporter.ok("✅") if is_fresh else "☑️")
+            icon = " ✅" if self.age is not None and self.age <= FRESH_FETCH_THRESHOLD else " ☑️"
 
-        if status.ahead:
-            result.append(f"ahead {status.ahead}")
-
-        if status.behind:
-            result.append(f"behind {status.behind}")
-
-        edits, deletes, new = status.pending_change_counts()
-        if edits:
-            result.append(f"✏️{edits}")
-
-        if deletes:
-            result.append(f"🗑️{deletes}")
-
-        if new:
-            result.append(f"🆕{new}")
-
-        if self.age is not None and self.age > FRESHNESS_THRESHOLD:
-            result.append(f"🕸️{self._short_age(self.age)}")
-
-        return " ".join(result)
+        return self.represented_branch(branch) + icon
 
     def status_details(self, indent="  ") -> str:
         result = []
-        orphan_branches = [
-            branch for branch in self.orphan_branches if branch != self.refs.current and not self.is_protected_branch(branch)
-        ]
+        orphan_branches = [branch for branch in self.orphan_branches if branch != self.refs.current and self.is_orphan_branch(branch)]
         if orphan_branches:
-            result.append(f"Orphan branches: {', '.join(orphan_branches)}")
+            result.append(f"Orphan branches: {', '.join(self.represented_branch(branch) for branch in orphan_branches)}")
 
         status = self.status
         result.extend(self._detail_lines(status.modified, Reporter.index_change, Reporter.worktree_change))
         result.extend(self._detail_lines(status.untracked, Reporter.untracked_change))
-        return "\n".join(f"{indent}{line}" for line in result)
+        return Reporter.joined_lines(result, indent=indent)
 
     def branch_details(self, indent="") -> str:
         refs = self.refs
@@ -360,56 +342,17 @@ class GitDir:
             return ""
 
         width = max(len(name) for name in branches)
-        default_branch = self.default_branch
-        orphan_branches = set(self.orphan_branches)
         result = []
         for name in branches:
-            line = f"{'*' if name == refs.current else ' '} {name:<{width}}"
-            annotations = self._branch_annotations(name, default_branch, orphan_branches, self.is_protected_branch(name))
+            padding = " " * (width - len(name))
+            line = f"{'*' if name == refs.current else ' '} {self.represented_branch(name)}{padding}"
+            annotations = self._branch_annotations(name)
             if annotations:
-                line += f"  {' '.join(annotations)}"
+                line += f"  {annotations}"
 
-            result.append(f"{indent}{line}")
+            result.append(line)
 
-        return "\n".join(result)
-
-    def report(self, bare=False) -> GitRunReport:
-        """
-        :param bool bare: Bare report only
-        :return GitRunReport: General report on current checkout state
-        """
-        result = GitRunReport()
-        refs = self.refs
-
-        if not refs.remotes:
-            result.add(problem="no remotes")
-
-        if bare:
-            return result
-
-        age = self.age
-        if age is not None and age > FRESHNESS_THRESHOLD:
-            result.add(note=f"last fetch {runez.represented_duration(age)} ago")
-
-        orphan_branches = self.orphan_branches
-        if refs.current in orphan_branches:
-            # Current is no more on its remote (should possibly checkout another branch and cleanup, or push)
-            orphan_branches = orphan_branches[:]
-            orphan_branches.remove(refs.current)
-            result.add(note=f"current branch '{refs.current}' is orphaned")
-
-        cleanable = sorted(self.local_cleanable_branches)
-        if len(cleanable) == 1:
-            result.add(note=f"local branch '{cleanable[0]}' can be pruned")
-
-        elif cleanable:
-            result.add(note=f"{runez.plural(cleanable, 'local branch')} can be pruned")
-
-        if refs.detached:
-            result.add(note="HEAD detached")
-
-        result.add(self.status.report)
-        return result
+        return Reporter.joined_lines(result, indent=indent)
 
     def run_git_command(self, *args: str) -> subprocess.CompletedProcess[str]:
         """
@@ -470,22 +413,21 @@ class GitDir:
         if proc.returncode:
             return git_error_report(proc).add(problem="<can't checkout default branch")
 
-        return GitRunReport(progress=f"checked out {branch}")
+        return GitRunReport(progress=f"checked out {self.represented_branch(branch)}")
 
     def pull(self) -> GitRunReport:
         """Pull from tracked remote"""
-        report = self.report(bare=True)
-        if report.has_problems:
-            return report.cant_pull()
+        refs = self.refs
+        if not refs.remotes:
+            return GitRunReport().cant_pull("no remotes")
 
         status = self.status
-        if status.modified:
+        if status.has_pending_changes:
             return GitRunReport().cant_pull("pending changes")
 
         if status.report.has_problems:
             return GitRunReport(status.report).cant_pull()
 
-        refs = self.refs
         if not refs.current:
             return GitRunReport(problem="no remote branch")
 
@@ -496,21 +438,14 @@ class GitDir:
             if proc.returncode:
                 return git_error_report(proc)
 
+        note = status.upstream_delta() or "up-to-date"
         proc = self.run_git_command("pull", "--rebase")
         self.clear_cached_state()
         if proc.returncode:
             return git_error_report(proc).cant_pull()
 
         self.age = 0
-        output = proc.stdout
-        if "up to date" in output or "up-to-date" in output:
-            return GitRunReport(progress="")
-
-        if "Fast-forward" in output:
-            return GitRunReport(progress="pulled successfully")
-
-        # Shouldn't be reached
-        Reporter.abort(f"Check pull --rebase output: {output}, error: {proc.stderr}")
+        return GitRunReport(note=f"was {note}")
 
     def _current_age(self) -> int | None:
         """Elapsed time in seconds since last fetch"""
@@ -562,6 +497,21 @@ class GitDir:
     def is_protected_branch(self, name: str) -> bool:
         """True if branch should not be cleaned or reported as orphaned"""
         return bool(name and (name == self.default_branch or name in self.refs.default_branches.values()))
+
+    def is_orphan_branch(self, name: str) -> bool:
+        """True if branch is an unprotected orphan."""
+        return bool(name and name in self.orphan_branches and not self.is_protected_branch(name))
+
+    def represented_branch(self, name: str) -> str:
+        """Styled representation of a branch name."""
+        result = runez.bold(name)
+        if name == self.default_branch:
+            return runez.green(result)
+
+        if self.is_orphan_branch(name):
+            return runez.orange(result)
+
+        return result
 
     @cached_property
     def cleanable_base_ref(self) -> str:
@@ -703,19 +653,23 @@ class GitStatus:
 
     @property
     def dirty_note(self) -> str:
-        """Short freshness overview"""
-        result = []
-        if self.modified:
-            result.append(Reporter.problem(runez.plural(self.modified, "diff")))
-
-        if self.untracked:
-            result.append(Reporter.untracked_change(f"{len(self.untracked)} untracked"))
-
-        return ", ".join(result)
+        """Short overview of pending changes."""
+        return Reporter.joined(
+            self.modified and Reporter.problem(runez.plural(self.modified, "diff")),
+            self.untracked and Reporter.untracked_change(f"{len(self.untracked)} untracked"),
+        )
 
     @property
     def has_pending_changes(self) -> bool:
         return bool(self.modified or self.untracked)
+
+    def upstream_delta(self, use_icons=False) -> str:
+        """Short report on divergence from the upstream branch."""
+        ahead, behind = ("🏃", "🚶") if use_icons else (" ahead", " behind")
+        return Reporter.joined(
+            self.ahead and f"{self.ahead}{ahead}",
+            self.behind and f"{self.behind}{behind}",
+        )
 
     def pending_change_counts(self) -> tuple[int, int, int]:
         edits = 0
