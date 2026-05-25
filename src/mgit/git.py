@@ -340,7 +340,7 @@ class GitDir:
 
         return " ".join(result)
 
-    def status_detail_lines(self) -> list[str]:
+    def status_details(self, indent="  ") -> str:
         result = []
         orphan_branches = [
             branch for branch in self.orphan_branches if branch != self.refs.current and not self.is_protected_branch(branch)
@@ -351,13 +351,13 @@ class GitDir:
         status = self.status
         result.extend(self._detail_lines(status.modified, Reporter.index_change, Reporter.worktree_change))
         result.extend(self._detail_lines(status.untracked, Reporter.untracked_change))
-        return result
+        return "\n".join(f"{indent}{line}" for line in result)
 
-    def branch_lines(self) -> list[str]:
+    def branch_details(self, indent="") -> str:
         refs = self.refs
         branches = sorted(refs.local) or ([refs.current] if refs.current else [])
         if not branches:
-            return []
+            return ""
 
         width = max(len(name) for name in branches)
         default_branch = self.default_branch
@@ -369,9 +369,9 @@ class GitDir:
             if annotations:
                 line += f"  {' '.join(annotations)}"
 
-            result.append(line)
+            result.append(f"{indent}{line}")
 
-        return result
+        return "\n".join(result)
 
     def report(self, bare=False) -> GitRunReport:
         """
@@ -449,13 +449,6 @@ class GitDir:
             return "HEAD", True
 
         Reporter.abort(f"Could not inspect git HEAD: {git_error_message(proc)}")
-
-    def fetch(self, age=30) -> GitRunReport:
-        """Fetch if age is older than specified number of seconds, use None to fetch unconditionally"""
-        if self.age is not None and self.age <= age:
-            return GitRunReport()
-
-        return self.fetch_now()
 
     def fetch_now(self) -> GitRunReport:
         proc = self.run_git_command("fetch", "--all", "--prune")

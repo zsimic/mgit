@@ -116,16 +116,22 @@ def test_pull_workspace_recaps_each_checkout(cli, git):
     bar_source = git.seeded_set("bar-source")
     foo = git.clone(foo_source.remote_url, "workspace/foo")
     git.clone(bar_source.remote_url, "workspace/bar-baz")
+    git.init("workspace/broken")
     foo_source.seed.commit_file("next.txt", "next", "next")
     foo_source.seed.push()
     foo.run_git("fetch")
 
     cli.run("pull workspace")
-
     assert cli.succeeded
     assert "foo: main ✅ (was behind 1)" in cli.logged
     assert "bar-baz: main ✅ (was up-to-date)" in cli.logged
+    assert "broken: main ✅ (can't pull; no remotes)" in cli.logged
     assert foo.run_git("rev-parse", "HEAD") == foo.run_git("rev-parse", "origin/main")
+
+    # Single fails with exit code != 0
+    cli.run("pull workspace/broken")
+    assert cli.failed
+    assert "can't pull; no remotes" in cli.logged
 
 
 def test_main_checks_out_default_branch(cli, git):

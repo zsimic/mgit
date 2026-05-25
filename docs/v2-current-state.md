@@ -58,6 +58,9 @@ still deferred.
   supplied explicitly, even `.`, that folder is used as-is.
 - `StatusCommand`, `FetchCommand`, and `PullCommand` spell out their run
   behavior directly rather than routing through shared fetch/pull flags.
+- Command handlers do not aggregate numeric exit codes: a single-checkout
+  operation aborts immediately when its report fails, while workspace fetch and
+  pull display per-checkout failures and continue successfully.
 - `normalized_cli_args()` normalizes argv before parsing: it inserts `status` when
   the first non-global token is not a command, expands short names such as `f`
   to `fetch`, and then lets the top-level argparse parser dispatch through real
@@ -79,7 +82,8 @@ still deferred.
 
 `Reporter` in `src/mgit/git.py` currently holds color/style helpers. Git-derived
 status and branch rendering now lives on `GitDir` via `status_line()`,
-`status_detail_lines()`, and `branch_lines()`.
+`status_details()`, and `branch_details()`. The detail methods return complete
+multi-line display blocks, leaving commands to decide when to print them.
 
 `src/mgit/git.py` holds most git-specific behavior:
 
@@ -96,8 +100,12 @@ status and branch rendering now lives on `GitDir` via `status_line()`,
   `main` or `master`.
 - `GitDir.age` is a simple per-command freshness snapshot captured when the
   `GitDir` is created. Successful fetch and pull operations update it directly.
+- `fetch` commands use `GitDir.fetch_now()` directly; the earlier conditional
+  fetch helper has been removed.
 - `GitDir.status_line()` composes the compact one-line branch/freshness/status
   output used by single and workspace status-like commands.
+- `GitDir.status_details()` and `GitDir.branch_details()` compose the indented
+  expanded displays used only where a command requests detail output.
 - `GitStatus` parses `git status --porcelain=v2 --branch`, keeping worktree
   status and structured ahead/behind reporting separate from ref discovery.
 - Cleanable local and remote branches are proven with
@@ -157,6 +165,8 @@ Existing tests cover:
 - The fact that `-v/--verbose` controls logging, not output shape.
 - Workspace branch reports.
 - Workspace pull recap output.
+- Single-checkout fetch/pull failure aborts and workspace fetch/pull
+  continuation on per-checkout failure.
 - `main` checkout behavior.
 - Single-repo `groom` deleting a stale tracked branch, refusing pending changes,
   and refusing an uncleanable current branch.
@@ -164,7 +174,8 @@ Existing tests cover:
 Coverage is light around:
 
 - Branch/status parsing from realistic git output fixtures.
-- Workspace fetch/pull failures and result aggregation.
+- More varied workspace fetch/pull git transport failures and mixed-state
+  reporting.
 - Clone config matching.
 - Color policy.
 - Packaging and dependency cleanup.

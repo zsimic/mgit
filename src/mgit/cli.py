@@ -35,7 +35,7 @@ class CliCommand(ABC):
         return cls.__doc__.splitlines()[0]
 
     @classmethod  # noqa: B027 - optional hook
-    def add_arguments(cls, _parser: argparse.ArgumentParser) -> None:
+    def add_arguments(cls, _parser: argparse.ArgumentParser):
         """Add command-specific arguments."""
 
     @classmethod
@@ -44,7 +44,7 @@ class CliCommand(ABC):
         """Create a command from parsed CLI arguments."""
 
     @abstractmethod
-    def run(self) -> int:
+    def run(self):
         """Run the command."""
 
 
@@ -55,7 +55,7 @@ class FolderTargetCommand(CliCommand):
         self.folder = folder
 
     @classmethod
-    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+    def add_arguments(cls, parser: argparse.ArgumentParser):
         parser.add_argument("folder", nargs="?", type=Path)
 
     @classmethod
@@ -82,7 +82,7 @@ class FolderTargetCommand(CliCommand):
 
         return ProjectDir(folder)
 
-    def run(self) -> int:
+    def run(self):
         """Run the command."""
         target = self.target()
         if isinstance(target, GitDir):
@@ -95,21 +95,22 @@ class FolderTargetCommand(CliCommand):
         return f" ({text})" if text else ""
 
     @staticmethod
-    def print_status(git: GitDir, suffix: str | None = None, show_details=True) -> None:
+    def print_status(git: GitDir, suffix: str | None = None, show_details=True):
         print(f"{git.status_line()}{FolderTargetCommand.status_suffix(suffix)}")
         if show_details:
-            for line in git.status_detail_lines():
-                print(f"  {line}")
+            details = git.status_details()
+            if details:
+                print(details)
 
     @staticmethod
-    def print_project_status(project_dir: ProjectDir, git: GitDir, suffix: str | None = None) -> None:
+    def print_project_status(project_dir: ProjectDir, git: GitDir, suffix: str | None = None):
         print(project_dir.prefixed_line(git, f"{git.status_line()}{FolderTargetCommand.status_suffix(suffix)}"))
 
     @abstractmethod
-    def run_single(self, git: GitDir) -> int:
+    def run_single(self, git: GitDir):
         """Run this command for one git dir."""
 
-    def run_multi(self, _project_dir: ProjectDir) -> int:
+    def run_multi(self, _project_dir: ProjectDir) -> None:
         """Run this command for all git dirs in `project_dir`."""
         Reporter.abort(f"{self.command_name()} only supports one git checkout")
 
@@ -137,15 +138,16 @@ class StatusCommand(FolderTargetCommand):
 
     short_name = "s"
 
-    def run_single(self, git: GitDir) -> int:
-        self.print_status(git)
-        return 0
+    def run_single(self, git: GitDir):
+        print(git.status_line())
+        details = git.status_details()
+        if details:
+            print(details)
 
-    def run_multi(self, project_dir: ProjectDir) -> int:
+    def run_multi(self, project_dir: ProjectDir):
         project_dir.print_header()
         for git in project_dir.git_dirs:
             self.print_project_status(project_dir, git)
-        return 0
 
 
 @cli_command
@@ -154,28 +156,16 @@ class FetchCommand(FolderTargetCommand):
 
     short_name = "f"
 
-    def fetch_status(self, git: GitDir) -> tuple[int, str | None]:
-        should_fetch = git.age is None or git.age > 30
-        report = git.fetch()
-        if report.has_problems:
-            return 1, report.representation()
+    def run_single(self, git: GitDir):
+        git.fetch_now().require_success("fetch")
+        self.print_status(git, "fetched")
 
-        return 0, "fetched" if should_fetch else "fresh"
-
-    def run_single(self, git: GitDir) -> int:
-        exit_code, suffix = self.fetch_status(git)
-        self.print_status(git, suffix)
-        return exit_code
-
-    def run_multi(self, project_dir: ProjectDir) -> int:
+    def run_multi(self, project_dir: ProjectDir):
         project_dir.print_header()
-        exit_code = 0
         for git in project_dir.git_dirs:
-            current_exit, suffix = self.fetch_status(git)
-            exit_code = max(exit_code, current_exit)
+            report = git.fetch_now()
+            suffix = report.representation() if report.has_problems else "fetched"
             self.print_project_status(project_dir, git, suffix)
-
-        return exit_code
 
 
 @cli_command
@@ -196,28 +186,20 @@ class PullCommand(FolderTargetCommand):
 
         return ", ".join(parts) or "was up-to-date"
 
-    def pull_status(self, git: GitDir) -> tuple[int, str | None]:
+    def run_single(self, git: GitDir):
         suffix = self.pull_summary(git)
-        report = git.pull()
-        if report.has_problems:
-            return 1, report.representation()
-
-        return 0, suffix
-
-    def run_single(self, git: GitDir) -> int:
-        exit_code, suffix = self.pull_status(git)
+        git.pull().require_success("pull")
         self.print_status(git, suffix)
-        return exit_code
 
-    def run_multi(self, project_dir: ProjectDir) -> int:
+    def run_multi(self, project_dir: ProjectDir):
         project_dir.print_header()
-        exit_code = 0
         for git in project_dir.git_dirs:
-            current_exit, suffix = self.pull_status(git)
-            exit_code = max(exit_code, current_exit)
-            self.print_project_status(project_dir, git, suffix)
+            suffix = self.pull_summary(git)
+            report = git.pull()
+            if report.has_problems:
+                suffix = report.representation()
 
-        return exit_code
+            self.print_project_status(project_dir, git, suffix)
 
 
 @cli_command
@@ -226,10 +208,10 @@ class MainCommand(FolderTargetCommand):
 
     short_name = "m"
 
-    def run_single(self, git: GitDir) -> int:
+    def run_single(self, git: GitDir):
         report = git.checkout_default_branch()
+        report.require_success("checkout default branch")
         self.print_status(git, report.representation())
-        return 1 if report.has_problems else 0
 
 
 @cli_command
@@ -238,13 +220,12 @@ class BranchesCommand(FolderTargetCommand):
 
     short_name = "b"
 
-    def run_single(self, git: GitDir) -> int:
-        for line in git.branch_lines():
-            print(line)
+    def run_single(self, git: GitDir):
+        details = git.branch_details()
+        if details:
+            print(details)
 
-        return 0
-
-    def run_multi(self, project_dir: ProjectDir) -> int:
+    def run_multi(self, project_dir: ProjectDir):
         project_dir.print_header()
         show_names = len(project_dir.git_dirs) > 1
         for git in project_dir.git_dirs:
@@ -252,10 +233,9 @@ class BranchesCommand(FolderTargetCommand):
                 print(f"{git.basename}:")
 
             indent = "  " if show_names else ""
-            for line in git.branch_lines():
-                print(f"{indent}{line}")
-
-        return 0
+            details = git.branch_details(indent=indent)
+            if details:
+                print(details)
 
 
 @cli_command
@@ -264,7 +244,7 @@ class GroomCommand(FolderTargetCommand):
 
     short_name = "g"
 
-    def _checkout_default_branch(self, git: GitDir, branch: str) -> None:
+    def _checkout_default_branch(self, git: GitDir, branch: str):
         proc = git.run_git_command("checkout", branch)
         git.clear_cached_state()
         if proc.returncode:
@@ -272,7 +252,7 @@ class GroomCommand(FolderTargetCommand):
 
         print(f"Checked out {branch} branch")
 
-    def _delete_stale_local_branches(self, git: GitDir) -> None:
+    def _delete_stale_local_branches(self, git: GitDir):
         cleanups = git.stale_tracked_local_branch_cleanups()
         if not cleanups:
             print("No stale local branches")
@@ -292,7 +272,7 @@ class GroomCommand(FolderTargetCommand):
 
         git.clear_cached_state()
 
-    def run_single(self, git: GitDir) -> int:
+    def run_single(self, git: GitDir):
         git.fetch_now().require_success("groom")
         status = git.status
         status.require_clean("groom")
@@ -312,7 +292,6 @@ class GroomCommand(FolderTargetCommand):
         git.clear_cached_state()
         self._delete_stale_local_branches(git)
         print(git.status_line())
-        return 0
 
 
 class CommandHelpFormatter(argparse.HelpFormatter):
@@ -325,7 +304,7 @@ class CommandHelpFormatter(argparse.HelpFormatter):
         return super()._format_action(action)
 
 
-def add_command_parser(subparsers: argparse._SubParsersAction, command: type[CliCommand]) -> None:
+def add_command_parser(subparsers: argparse._SubParsersAction, command: type[CliCommand]):
     aliases = [command.short_name] if command.short_name else []
     parser = subparsers.add_parser(
         command.command_name(),
@@ -411,4 +390,4 @@ def main():
     with runez.ActivateColors(None if namespace.color == "auto" else namespace.color == "always"):
         runez.date.DEFAULT_DURATION_SPAN = -2
         runez.log.setup(debug=namespace.verbose, level=logging.INFO, console_format="%(levelname)s %(message)s", locations=None)
-        return command.run()
+        command.run()
