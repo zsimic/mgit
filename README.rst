@@ -1,5 +1,7 @@
-Fetch collections of git projects
-=================================
+mgit
+====
+
+A small companion for humans who like tidy git checkouts.
 
 .. image:: https://img.shields.io/pypi/v/mgit.svg
     :target: https://pypi.org/project/mgit/
@@ -14,122 +16,168 @@ Fetch collections of git projects
     :alt: Python versions tested
 
 
-Overview
-========
+What it is
+==========
 
-With ``mgit``, you can pull/fetch several projects at once,
-and also auto-cleanup dangling branches (from past pull requests).
+``mgit`` is a tiny CLI for people who like their git checkouts clean, current,
+and easy to scan. It gives you a quick read on one repo, or on every repo
+directly inside a workspace folder.
 
-A colored output is provided if possible, ``mgit`` should come in handy in general for:
+- What state did I leave this checkout in?
+- Can I pull, or did I leave work pending here?
+- Is a merged branch still hanging around, waiting to be cleaned?
+- I just wrapped up a branch; can I safely get back to ``main`` and clear it away?
 
-- quickly getting an overview of what's up with N git projects
-- fetch/pull N git objects at once
-- clone missing projects (useful if you tend to clone projects from same remote in one common folder)
-
-
-Example usage
-=============
-
-``mgit`` can show you what's the status of all your git projects in a folder, for example my repos::
-
-    ~/dev/github: mgit
-    ~/dev/github: 4 github/zsimic
-         mgit: [main] up to date
-      pickley: [main] 1 diff, up to date*  last fetch 1w 4d ago
-        runez: [main] up to date*  last fetch 1w 4d ago
-    setupmeta: [main] up to date*  last fetch 3d 23h ago
+``mgit`` is not a git replacement. It is the compact, careful layer for those
+ordinary moments where you would rather see the answer than reconstruct it
+from a handful of commands.
 
 
-Here we can see that:
+The rhythm
+==========
 
-- There are 4 git repos in folder ``~/dev/github``
+Start with a glance::
 
-- All 4 come from ``github/zsimic``
+    mgit        # show status here, or across a workspace
 
-- 3 of them haven't been fetched in a while
+Refresh or move forward only when you mean to::
 
-We can fetch them all at once with ``--fetch`` (or ``-f``)::
+    mgit f      # fetch --all --prune, then show the refreshed status
+    mgit p      # pull --rebase, but never over pending work
 
-    ~/dev/github: mgit --fetch
-    ~/dev/github: 4 github/zsimic
-         mgit: [main] up to date
-      pickley: [main] 1 diff, up to date
-        runez: [main] behind 2
-    setupmeta: [main] up to date
+And for the wonderfully common ``PR merged`` moment::
 
+    mgit g      # fetch, return to the default branch, pull, clean this branch
 
-Now all projects have been refreshed, and we can see there's nothing new in 2 of them,
-but one is 2 commits behind (ie: 2 commits are on the remote, not pulled yet).
-The output also shows that one of the projects has uncommitted files.
+The short names are the intended interface:
 
-Modified files are shown (by default) if only one project is in scope, for example::
+- ``status`` / ``s``: show whether anything here needs attention. This is the default.
+- ``fetch`` / ``f``: refresh remote refs, then show what changed.
+- ``pull`` / ``p``: pull with rebase only when pending work will not be disturbed.
+- ``main`` / ``m``: checkout the default branch, even if it is ``master``.
+- ``branches`` / ``b``: list local branches with useful small annotations.
+- ``groom`` / ``g``: safely finish with the merged branch you are currently on.
 
-    ~/dev/github: mgit pickley
-    pickley: [main] 1 diff, up to date
-       M tox.ini
+The command shape is::
 
+    mgit [-v] [--color auto|always|never] [COMMAND] [FOLDER]
 
-Above, we can see that the modified file in question is ``tox.ini`` in that project.
-We can get the same effect using the ``--verbose`` (or ``-v``) flag,
-like for example with 2 projects with modified files::
+You can pass a folder to most commands::
 
-    ~/dev/github: mgit -v
-    ~/dev/github: 4 github/zsimic
-    mgit: [main] 1 diff, up to date
-       M README.rst
-    pickley: [main] 1 diff, up to date
-       M tox.ini
-    runez: [main] up to date
-    setupmeta: [main] up to date
+    mgit ~/github
+    mgit f ~/github
+    mgit g ~/github/mgit
+
+Workspace scans are shallow on purpose: ``mgit ~/github`` inspects direct
+children like ``~/github/*/.git`` and does not crawl nested folders.
 
 
-Synopsis::
-
-    ~/dev/github: mgit --help
-    Usage: mgit [OPTIONS] [TARGET]
-
-      Fetch collections of git projects
-
-    Options:
-      --version                       Show the version and exit.
-      --debug                         Show debugging information.
-      --color / --no-color            Use colors (on by default on ttys)
-      --log PATH                      Override log file location.
-      --clean [show|local|remote|all|reset]
-                                      Auto-clean branches
-      -f, --fetch                     Fetch from all remotes
-      -p, --pull                      Pull from tracking remote
-      -s, --short / -v, --verbose     Short/verbose output
-      -cs                             Handy shortcut for '--clean show'
-      -cl                             Handy shortcut for '--clean local'
-      -cr                             Handy shortcut for '--clean remote'
-      -ca                             Handy shortcut for '--clean all'
-      -h, --help                      Show this message and exit.
-
-Installation
+What you see
 ============
 
-Easiest way to get mgit is via pickley_ or pipx_::
+A workspace stays pleasantly skimmable::
+
+        mgit: main ✅
+     pickley: main ☑️ [+1🪦] ⌛4w 6d
+       runez: feature 🪦 ✏️1
+    detached: HEAD 👻
+
+In one glance you get:
+
+- the current branch
+- local diffs and untracked files
+- ahead/behind/gone tracking state
+- fetch freshness
+- a compact hint that a stale local branch is still lurking
+
+``✅`` means recently refreshed, ``☑️`` means the local picture may be older,
+``⌛`` calls out notably stale fetch information, a branch-level ``🪦`` means
+its upstream is gone, and ``👻`` means detached ``HEAD``. A bracket such as
+``[+2🪦+1]`` says that, besides the current and default branches, two local
+branches have been proven cleanable and one remains.
+
+For a single checkout, status also prints the pending paths. Workspace output
+keeps to one line per repo, so you can keep checking a directory full of
+projects without turning the terminal into a log dump::
+
+    mgit ~/github/mgit
+
+Color is automatic on terminals and can be controlled explicitly::
+
+    mgit --color auto
+    mgit --color always
+    mgit --color never
+
+
+Safety model
+============
+
+``mgit`` is read-only by default. Asking how things look does not change your repos.
+
+Commands that act are explicit:
+
+- ``mgit f`` updates local remote refs with ``git fetch --all --prune``.
+- ``mgit p`` pulls with rebase only when the checkout passes safety checks.
+- ``mgit g`` fetches, verifies that the current branch can be cleaned before
+  switching branches, pulls safely, and deletes that local branch only. If it
+  still exists on ``origin``, it deletes that one remote branch only after
+  independently proving that the fetched remote ref is merged or
+  content-equivalent to the fetched default branch; an exact-ref lease prevents
+  deleting a branch that advanced meanwhile. No other branch is deleted.
+  When already on the default branch, it fetches and reports that fact without
+  pulling or cleaning branches. Use ``mgit m`` when you only want to switch to
+  the default branch.
+
+
+Coming next
+===========
+
+A larger convenience waiting in the wings is ``mgit clone``: give it a full
+repo URL and let ``mgit`` choose the local destination from simple config
+rules.
+
+Planned config shape::
+
+    locations = [
+        { match = "github.com/zsimic/*", dir = "~/github" },
+        { match = "github.com/*",        dir = "~/ext" },
+        { match = "git.mycompany.com/*", dir = "~/dev" },
+    ]
+
+The goal is predictable placement without memorizing where each family of repos
+belongs. Status, fetch, pull, main, and groom do not require any mgit config.
+
+
+Install
+=======
+
+Install with pickley_ or pipx_::
 
     pickley install mgit
-
 
 or::
 
     pipx install mgit
 
-
-You can also compile from source::
+Install from a checkout for development::
 
     git clone https://github.com/zsimic/mgit.git
     cd mgit
-    uv venv
-    uv pip install -e .
-
+    uv sync
     .venv/bin/mgit --help
 
-    source .venv/bin/activate
-    mgit --help
+
+Develop
+=======
+
+Fast local checks::
+
+    .venv/bin/pytest -q
+    ruff check
+
+Full confidence check::
+
+    tox
 
 
 .. _pickley: https://pypi.org/project/pickley/
