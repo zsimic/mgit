@@ -9,8 +9,9 @@ accurate as work proceeds.
 - Make the command model explicit.
 - Keep git command execution easy to test.
 - Separate parsing, state modeling, command handlers, and rendering.
-- Make destructive behavior clear and guarded. `groom`/`g` is first-iteration
-  local cleanup; remote deletion and reset stay later.
+- Make destructive behavior clear and guarded. `groom`/`g` may delete only the
+  safely proven current local branch and its leased tracked `origin` branch;
+  broad remote deletion and reset stay later.
 - Prefer fewer dependencies.
 - Use `workspace` for multi-repo folders and scan only direct children:
   `<workspace>/*/.git`.
@@ -60,6 +61,8 @@ Suggested module split:
 - [x] Require cleanable branches to be merged or content-equivalent to the
   default branch.
 - [x] Refuse `groom` from non-default branches that are not cleanable.
+- [x] Delete the still-present tracked `origin` branch being groomed only after
+  an independent merge/content proof and an exact-ref lease.
 - [x] Add CLI tests for default command, short names, explicit commands,
   invalid usage, and folders.
 
@@ -79,7 +82,7 @@ Suggested module split:
 ## Maybe Later: Destructive Commands
 
 - [ ] Add workspace support for `groom` if the single-repo behavior proves out.
-- [ ] Decide dry-run and confirmation policy for remote branch deletion.
+- [ ] Decide dry-run and confirmation policy for broad remote branch deletion.
 - [ ] Implement `groom-remote` if safety rules are settled.
 - [ ] Implement `groom-all` if safety rules are settled.
 - [ ] Decide whether `zap-zap` belongs in v2.0 or a later v2.x.
@@ -107,7 +110,8 @@ The first coding slice serves the two common command loops first:
    state, and `mgit p` pulls only when explicitly requested.
 4. The single-repo `g` workflow fetches/prunes, resolves the default branch,
    refuses on pending changes, checks out the default branch when needed, pulls
-   safely, and deletes stale local branches.
+   safely, lease-deletes its still-present proven-cleanable `origin` branch,
+   and deletes only the safely proven local branch it started on.
 5. `mgit main`/`m` uses the same default-branch resolution.
 6. `-v/--verbose` stays out of output-shape decisions.
 7. `--short`/`--long` remain deferred.

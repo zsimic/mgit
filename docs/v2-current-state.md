@@ -40,7 +40,8 @@ Implemented commands:
 - `pull` / `p`: pull with rebase when the checkout passes safety checks.
 - `main` / `m`: checkout the detected default branch.
 - `branches` / `b`: list local branches with annotations.
-- `groom` / `g`: single-repo local cleanup workflow.
+- `groom` / `g`: single-repo cleanup of the safely merged current branch,
+  including its tracked `origin` branch when that remote ref is still present.
 
 The legacy v1 action flags (`-f`, `-p`, `--clean`, `-cs`, `-cl`, `-cr`,
 `-ca`) are no longer part of the v2 command shape. `--short` and `--long` are
@@ -86,7 +87,8 @@ status and branch rendering now lives on `GitDir` via `status_line()`,
 multi-line display blocks, leaving commands to decide when to print them.
 Branch names are always bold in status, branch displays, and successful action
 output, with default branches green and orphaned branches orange. Status
-markers such as `✅`, `☑️`, and `🪦` are not passed through text color styles.
+markers such as `✅`, `☑️`, `🪦`, and detached-HEAD `👻` are not passed
+through text color styles.
 
 `src/mgit/git.py` holds most git-specific behavior:
 
@@ -94,6 +96,8 @@ markers such as `✅`, `☑️`, and `🪦` are not passed through text color st
 - `GitDir` is the main git runner and state facade.
 - `CleanableLocalBranch` carries the result of a local branch cleanup proof,
   including whether deletion needs `git branch --delete --force`.
+- `CleanableRemoteBranch` carries the independently proven `origin` cleanup for
+  the current branch and its fetched object ID for an exact-ref deletion lease.
 - `GitRefs` is the repository ref snapshot. It uses `git remote`,
   `git symbolic-ref`, and `git for-each-ref` to gather current/local branches,
   remote branches, `origin/HEAD` default-branch information, and exact local
@@ -108,8 +112,11 @@ markers such as `✅`, `☑️`, and `🪦` are not passed through text color st
 - `GitDir.status_line(report=None)` composes the compact one-line
   branch/freshness/status output used by single and workspace status-like
   commands, appending any rendered operation report problem or note. Ambient
-  notes for stale fetch age, cleanable local branches, and detached `HEAD` use
-  that same report path.
+  notes for stale fetch age use that same report path. Detached `HEAD` is
+  represented by the `HEAD 👻` branch marker instead of an ambient note.
+  Other non-default, non-current branches are summarized in brackets: the
+  tombstone count is cleanable branches and the plain count is remaining
+  branches, as in `main ✅ [+2🪦+1]`.
 - Normal status deliberately evaluates cleanup eligibility from currently
   available local refs and git history without fetching or changing refs or
   the worktree. The content-equivalence proof uses
@@ -117,11 +124,13 @@ markers such as `✅`, `☑️`, and `🪦` are not passed through text color st
   leaving checkout state unchanged.
 - Dirty status lines retain the freshness marker, since freshness and pending
   changes are separate signals; an orphan tombstone supersedes the marker.
-  Additional local branches are represented separately as `[+N]`.
+  Additional non-default, non-current local branches are represented as a
+  cleanable/remaining partition such as `[+2🪦+1]`.
 - `GitDir.status_details()` and `GitDir.branch_details()` compose the indented
   expanded displays used only where a command requests detail output.
-- Successful `GitDir.pull()` reports use note messages such as `was 1 behind`
-  or `was up-to-date`, so their status-line recap uses note styling.
+- `GitDir.pull()` reports use pre-attempt note messages such as `was 1 behind`
+  or `was up-to-date`, including when the attempted Git pull fails, so their
+  status-line recap uses note styling.
 - `GitStatus.upstream_delta()` supplies shared compact upstream-divergence text
   for live status lines and pre-pull recap notes.
 - `GitStatus` parses `git status --porcelain=v2 --branch`, keeping worktree
@@ -133,6 +142,9 @@ markers such as `✅`, `☑️`, and `🪦` are not passed through text color st
   squash/content-equivalent merges without trusting branch names or current
   checkout state. Local squash-cleanable branches use force deletion only after
   that no-op merge proof.
+- `groom` applies that proof independently to a still-present tracked
+  `origin/<current-branch>` against fetched `origin/<default-branch>`, and
+  deletes it only with a force-with-lease tied to the fetched object ID.
 
 ## Settled Pieces
 
@@ -154,10 +166,15 @@ markers such as `✅`, `☑️`, and `🪦` are not passed through text color st
   `run_multi(ProjectDir)` methods.
 - `main` is treated as a user-facing command for "default branch", not a
   literal branch name.
-- `groom` is local-only and currently single-repo only. When run from a
-  non-default branch, it refuses to switch branches unless the current branch is
-  also cleanable. `groom` owns its step-by-step output directly and renders its
-  final pull recap through `GitDir.status_line(pull_report)`.
+- `groom` is currently single-repo only. When run from a non-default branch,
+  it refuses to switch branches unless the current branch is cleanable. If that
+  branch's `origin` upstream still exists, it separately proves and
+  lease-deletes only that same remote branch; it never sweeps unrelated remote
+  branches. It then deletes only that starting local branch, including a
+  local-only branch when safely cleanable. When started on the default branch,
+  it fetches and reports immediately without pulling or deleting. `groom` owns
+  its step-by-step output directly and renders recaps through
+  `GitDir.status_line(report)`.
 
 ## Remaining Work
 
@@ -187,8 +204,11 @@ Existing tests cover:
 - Single-checkout fetch/pull failure aborts and workspace fetch/pull
   continuation on per-checkout failure.
 - `main` checkout behavior.
-- Single-repo `groom` deleting a stale tracked branch, refusing pending changes,
-  and refusing an uncleanable current branch.
+- Single-repo `groom` deleting only its starting tracked or local-only branch,
+  leaving other cleanable local branches untouched, deleting its still-present remote
+  branch after merge or squash proof, preserving a remotely advanced branch via
+  its lease, reporting immediately on the default branch, refusing pending
+  changes while grooming a topic, and refusing an uncleanable current branch.
 
 Coverage is light around:
 

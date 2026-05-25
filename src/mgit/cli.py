@@ -11,7 +11,7 @@ from pathlib import Path
 import runez
 
 from mgit import ProjectDir, Reporter
-from mgit.git import git_error_message, GitDir
+from mgit.git import GitDir
 
 
 def command_name_from_class(cls: type) -> str:
@@ -178,7 +178,7 @@ class MainCommand(FolderTargetCommand):
     short_name = "m"
 
     def run_single(self, git: GitDir):
-        report = git.checkout_default_branch().require_success("checkout default branch")
+        report = git.checkout_default_branch()
         print(git.status_line(report))
         details = git.status_details()
         if details:
@@ -210,57 +210,65 @@ class BranchesCommand(FolderTargetCommand):
 
 @cli_command
 class GroomCommand(FolderTargetCommand):
-    """Fetch, return to default branch, pull, and clean stale local branches."""
+    """Fetch, return to default branch, pull, and clean the groomed branch."""
 
     short_name = "g"
 
     def _checkout_default_branch(self, git: GitDir, branch: str):
-        proc = git.run_git_command("checkout", branch)
+        git.checked_git_command("checkout", branch)
         git.clear_cached_state()
-        if proc.returncode:
-            Reporter.abort(f"can't groom: checkout {branch} failed: {git_error_message(proc)}")
-
         print(f"Checked out {git.represented_branch(branch)} branch")
 
-    def _delete_stale_local_branches(self, git: GitDir):
-        cleanups = git.stale_tracked_local_branch_cleanups()
-        if not cleanups:
-            print("No stale local branches")
-            return
+    def _delete_local_branch(self, git: GitDir, cleanup):
+        args = ["branch", "--delete", cleanup.name]
+        if cleanup.force_delete:
+            args.insert(2, "--force")
 
-        for cleanup in cleanups:
-            args = ["branch", "--delete", cleanup.name]
-            if cleanup.force_delete:
-                args.insert(2, "--force")
+        git.checked_git_command(*args)
+        print(f"Deleted branch {git.represented_branch(cleanup.name)}")
+        git.clear_cached_state()
 
-            proc = git.run_git_command(*args)
-            if proc.returncode:
-                Reporter.abort(f"can't groom: couldn't delete '{cleanup.name}': {git_error_message(proc)}")
-
-            else:
-                print(f"Deleted branch {git.represented_branch(cleanup.name)}")
-
+    def _delete_remote_branch(self, git: GitDir, cleanup):
+        branch_ref = f"refs/heads/{cleanup.branch}"
+        git.checked_git_command(
+            "push",
+            f"--force-with-lease={branch_ref}:{cleanup.expected_oid}",
+            "--delete",
+            cleanup.remote,
+            branch_ref,
+        )
+        print(f"Deleted remote branch {cleanup.remote}/{git.represented_branch(cleanup.branch)}")
         git.clear_cached_state()
 
     def run_single(self, git: GitDir):
-        git.fetch_now().require_success("groom")
-        status = git.status
-        status.require_clean("groom")
+        report = git.fetch_now().require_success("groom")
         refs = git.refs
         current_branch = refs.current
         default_branch = git.default_branch
-        if current_branch != default_branch and not git.cleanable_local_branch(current_branch, include_current=True):
-            Reporter.abort(f"can't groom: current branch can't be cleaned: {current_branch}")
-
         if current_branch == default_branch:
-            print(f"Already on {git.represented_branch(default_branch)} branch")
+            report.add(note="already on default branch")
+            print(git.status_line(report))
+            return
 
-        else:
-            self._checkout_default_branch(git, default_branch)
+        git.status.require_clean("groom")
+        remote_cleanup = None
+        local_cleanup = git.cleanable_local_branch(current_branch, include_current=True)
+        if not local_cleanup:
+            Reporter.abort(f"Branch {git.represented_branch(current_branch)} can't be cleaned")
 
+        upstream = refs.upstreams.get(current_branch)
+        if upstream and refs.has_remote_branch(upstream.remote, upstream.branch):
+            remote_cleanup = git.cleanable_current_remote_branch()
+            if not remote_cleanup:
+                Reporter.abort(f"Remote branch {upstream.remote}/{git.represented_branch(upstream.branch)} can't be cleaned automatically")
+
+        self._checkout_default_branch(git, default_branch)
         report = git.pull().require_success("groom")
         git.clear_cached_state()
-        self._delete_stale_local_branches(git)
+        if remote_cleanup:
+            self._delete_remote_branch(git, remote_cleanup)
+
+        self._delete_local_branch(git, local_cleanup)
         print(git.status_line(report))
 
 

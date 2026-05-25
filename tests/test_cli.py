@@ -76,7 +76,7 @@ def test_single_status_shows_pending_paths_and_discovers_parent_checkout(cli, gi
     assert "repo/foo: no git folders" in cli.logged
 
 
-def test_status_line_appends_stale_and_cleanable_notes(cli, git):
+def test_status_line_summarizes_stale_and_cleanable_branches(cli, git):
     repo = git.seeded("repo")
     repo.checkout("-b", "stale")
     repo.push("-u", "origin", "stale")
@@ -91,8 +91,29 @@ def test_status_line_appends_stale_and_cleanable_notes(cli, git):
     cli.run("repo")
 
     assert cli.succeeded
-    assert "main ☑️ [+1] ⌛13h" in cli.logged
-    assert "can prune local branch stale" in cli.logged
+    assert "main ☑️ [+1🪦] ⌛13h" in cli.logged
+
+
+def test_status_line_partitions_other_branches(cli, git):
+    repo = git.seeded("repo")
+    for branch in ("foo", "bar"):
+        repo.checkout("-b", branch, "main")
+        repo.push("-u", "origin", branch)
+        repo.checkout("main")
+        repo.push("origin", "--delete", branch)
+
+    repo.checkout("-b", "baz", "main")
+    repo.commit_file("baz.txt", "pending", "baz work")
+    repo.checkout("main")
+
+    cli.run("repo")
+    assert cli.succeeded
+    assert "main ✅ [+2🪦+1]" in cli.logged
+
+    repo.checkout("foo")
+    cli.run("repo")
+    assert cli.succeeded
+    assert "foo 🪦 [+1🪦+1]" in cli.logged
 
 
 def test_dirty_orphan_status_keeps_tombstone(cli, git):
@@ -107,7 +128,7 @@ def test_dirty_orphan_status_keeps_tombstone(cli, git):
     cli.run("repo")
 
     assert cli.succeeded
-    assert "orphan 🪦 [+1] 🆕1" in cli.logged
+    assert "orphan 🪦 🆕1" in cli.logged
 
 
 def test_verbose_enables_debug_logging(cli, git):
@@ -160,7 +181,7 @@ def test_branch_names_are_styled_consistently(cli, git):
     cli.run("--color always repo")
     assert cli.succeeded
     assert f"{topic_name} ✅" in cli.logged
-    assert f"can prune local branch {orphan_name}" in cli.logged
+    assert "[+1🪦]" in cli.logged
 
     cli.run("--color always pull repo")
     assert cli.succeeded
@@ -196,6 +217,8 @@ def test_pull_workspace_recaps_each_checkout(cli, git):
     assert cli.succeeded
     assert "workspace:" not in cli.logged
     assert "foo: main ✅ 1 behind" in cli.logged
+    assert "detached: HEAD 👻" in cli.logged
+    assert "HEAD detached" not in cli.logged
 
     cli.run("fetch workspace")
     assert cli.succeeded
@@ -205,7 +228,7 @@ def test_pull_workspace_recaps_each_checkout(cli, git):
     assert "foo: main ✅ was 1 behind" in cli.logged
     assert "bar-baz: main ✅ was up-to-date" in cli.logged
     assert "broken: main ✅ can't pull; no remotes" in cli.logged
-    assert "detached: HEAD ✅ can't pull; HEAD detached" in cli.logged
+    assert "detached: HEAD 👻 can't pull; HEAD detached" in cli.logged
     assert "HEAD detached; HEAD detached" not in cli.logged
     assert foo.run_git("rev-parse", "HEAD") == foo.run_git("rev-parse", "origin/main")
     assert detached.current_branch == ""
@@ -229,6 +252,17 @@ def test_pull_refuses_untracked_changes(cli, git):
 
     assert cli.failed
     assert "can't pull; pending changes" in cli.logged
+
+
+def test_pull_failure_retains_previous_status_note(cli, git):
+    repo = git.seeded("repo")
+    repo.remote("set-url", "origin", "missing.git")
+
+    cli.run("pull repo")
+
+    assert cli.failed
+    assert "can't pull" in cli.logged
+    assert "was up-to-date" in cli.logged
 
 
 def test_main_checks_out_default_branch(cli, git):

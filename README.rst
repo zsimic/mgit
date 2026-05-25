@@ -49,7 +49,7 @@ Fetch first, then decide what to do::
 
 Clean up after a branch is merged::
 
-    mgit g      # fetch, return to the default branch, pull, prune stale locals
+    mgit g      # fetch, return to default, pull, clean the merged branch
 
 The short names are the intended interface:
 
@@ -58,7 +58,7 @@ The short names are the intended interface:
 - ``pull`` / ``p``: pull with rebase when safety checks pass.
 - ``main`` / ``m``: checkout the default branch, even if it is ``master``.
 - ``branches`` / ``b``: list local branches with small annotations.
-- ``groom`` / ``g``: local-only cleanup workflow for stale local branches.
+- ``groom`` / ``g``: safely clean the merged branch you are currently on.
 
 The command shape is::
 
@@ -91,7 +91,7 @@ In one glance you get:
 - local diffs and untracked files
 - ahead/behind/gone tracking state
 - fetch freshness
-- stale local branch notes
+- compact cleanable/remaining local branch counts
 
 When the folder is a single checkout, status also shows the pending paths.
 Workspace output stays compact so many repos remain scannable::
@@ -114,15 +114,18 @@ Commands that act are explicit:
 
 - ``mgit f`` updates local remote refs with ``git fetch --all --prune``.
 - ``mgit p`` pulls with rebase only when the checkout passes safety checks.
-- ``mgit g`` is local-only: it does not delete remote branches. It fetches,
-  verifies that the current branch can be cleaned before switching branches,
-  pulls safely, and deletes only local branches whose tracked remote branch is
-  gone and whose content is already on the default branch. When already on the
-  default branch, it says so instead of treating that branch as cleanable. Use
-  ``mgit m`` when you only want to switch to the default branch.
+- ``mgit g`` fetches, verifies that the current branch can be cleaned before
+  switching branches, pulls safely, and deletes that local branch only. If it
+  still exists on ``origin``, it deletes that one remote branch only after
+  independently proving that the fetched remote ref is merged or
+  content-equivalent to the fetched default branch; an exact-ref lease prevents
+  deleting a branch that advanced meanwhile. No other branch is deleted.
+  When already on the default branch, it fetches and reports that fact without
+  pulling or cleaning branches. Use ``mgit m`` when you only want to switch to
+  the default branch.
 
-Remote branch deletion and reset-style cleanup are intentionally not part of
-the first v2 command set.
+Broad remote branch pruning and reset-style cleanup are intentionally not part
+of the first v2 command set.
 
 
 Clone routing
