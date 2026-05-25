@@ -1,7 +1,7 @@
 mgit
 ====
 
-Small git-workspace convenience.
+A small companion for humans who like tidy git checkouts.
 
 .. image:: https://img.shields.io/pypi/v/mgit.svg
     :target: https://pypi.org/project/mgit/
@@ -19,46 +19,44 @@ Small git-workspace convenience.
 What it is
 ==========
 
-``mgit`` is a tiny CLI for people who keep several git checkouts side by side.
-It gives you a quick read on one repo, or on every repo directly inside a
-workspace folder.
+``mgit`` is a tiny CLI for people who like their git checkouts clean, current,
+and easy to scan. It gives you a quick read on one repo, or on every repo
+directly inside a workspace folder.
 
-The sweet spot is the daily loop:
+- What state did I leave this checkout in?
+- Can I pull, or did I leave work pending here?
+- Is a merged branch still hanging around, waiting to be cleaned?
+- I just wrapped up a branch; can I safely get back to ``main`` and clear it away?
 
-- Which repos have local changes?
-- Which repos have not fetched in a while?
-- Which branches are behind, ahead, gone, or ready to clean up?
-- After a PR is merged, can I get back to the default branch and prune the old
-  local branch safely?
-
-``mgit`` is intentionally not a git replacement. It is a small quality-of-life
-layer around common inspection and grooming tasks.
+``mgit`` is not a git replacement. It is the compact, careful layer for those
+ordinary moments where you would rather see the answer than reconstruct it
+from a handful of commands.
 
 
-The workflow
-============
+The rhythm
+==========
 
-Run ``mgit`` with no command to inspect the current repo or workspace::
+Start with a glance::
 
-    mgit
+    mgit        # show status here, or across a workspace
 
-Fetch first, then decide what to do::
+Refresh or move forward only when you mean to::
 
-    mgit f      # fetch --all --prune, then show status
-    mgit p      # pull --rebase, only when the repo is safe to pull
+    mgit f      # fetch --all --prune, then show the refreshed status
+    mgit p      # pull --rebase, but never over pending work
 
-Clean up after a branch is merged::
+And for the wonderfully common ``PR merged`` moment::
 
-    mgit g      # fetch, return to default, pull, clean the merged branch
+    mgit g      # fetch, return to the default branch, pull, clean this branch
 
 The short names are the intended interface:
 
-- ``status`` / ``s``: show repo or workspace status. This is the default.
-- ``fetch`` / ``f``: refresh remote refs, then report status.
-- ``pull`` / ``p``: pull with rebase when safety checks pass.
+- ``status`` / ``s``: show whether anything here needs attention. This is the default.
+- ``fetch`` / ``f``: refresh remote refs, then show what changed.
+- ``pull`` / ``p``: pull with rebase only when pending work will not be disturbed.
 - ``main`` / ``m``: checkout the default branch, even if it is ``master``.
-- ``branches`` / ``b``: list local branches with small annotations.
-- ``groom`` / ``g``: safely clean the merged branch you are currently on.
+- ``branches`` / ``b``: list local branches with useful small annotations.
+- ``groom`` / ``g``: safely finish with the merged branch you are currently on.
 
 The command shape is::
 
@@ -74,16 +72,15 @@ Workspace scans are shallow on purpose: ``mgit ~/github`` inspects direct
 children like ``~/github/*/.git`` and does not crawl nested folders.
 
 
-Output
-======
+What you see
+============
 
-A workspace summary looks like this::
+A workspace stays pleasantly skimmable::
 
-    ~/github: 4 github/zsimic
-         mgit: [main] up to date
-      pickley: [main] 1 diff, up to date  last fetch 4w 6d ago
-        runez: [main] behind 2
-    setupmeta: [main] up to date
+        mgit: main ✅
+     pickley: main ☑️ [+1🪦] ⌛4w 6d
+       runez: feature 🪦 ✏️1
+    detached: HEAD 👻
 
 In one glance you get:
 
@@ -91,10 +88,17 @@ In one glance you get:
 - local diffs and untracked files
 - ahead/behind/gone tracking state
 - fetch freshness
-- compact cleanable/remaining local branch counts
+- a compact hint that a stale local branch is still lurking
 
-When the folder is a single checkout, status also shows the pending paths.
-Workspace output stays compact so many repos remain scannable::
+``✅`` means recently refreshed, ``☑️`` means the local picture may be older,
+``⌛`` calls out notably stale fetch information, a branch-level ``🪦`` means
+its upstream is gone, and ``👻`` means detached ``HEAD``. A bracket such as
+``[+2🪦+1]`` says that, besides the current and default branches, two local
+branches have been proven cleanable and one remains.
+
+For a single checkout, status also prints the pending paths. Workspace output
+keeps to one line per repo, so you can keep checking a directory full of
+projects without turning the terminal into a log dump::
 
     mgit ~/github/mgit
 
@@ -108,7 +112,7 @@ Color is automatic on terminals and can be controlled explicitly::
 Safety model
 ============
 
-``mgit`` is read-only by default. Status inspection does not change your repos.
+``mgit`` is read-only by default. Asking how things look does not change your repos.
 
 Commands that act are explicit:
 
@@ -124,15 +128,13 @@ Commands that act are explicit:
   pulling or cleaning branches. Use ``mgit m`` when you only want to switch to
   the default branch.
 
-Broad remote branch pruning and reset-style cleanup are intentionally not part
-of the first v2 command set.
 
+Coming next
+===========
 
-Clone routing
-=============
-
-The next larger convenience is ``mgit clone``: give it a full repo URL and let
-``mgit`` choose the local destination from simple config rules.
+A larger convenience waiting in the wings is ``mgit clone``: give it a full
+repo URL and let ``mgit`` choose the local destination from simple config
+rules.
 
 Planned config shape::
 

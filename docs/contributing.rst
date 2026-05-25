@@ -42,6 +42,8 @@ Useful focused tox runs:
 
 * ``tox -e style`` for packaged lint/type checks.
 
+* ``tox -e docs`` for a strict ``README.rst`` parse check.
+
 
 Test coverage
 =============
