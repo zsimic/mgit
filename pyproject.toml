@@ -12,7 +12,7 @@ authors = [
 ]
 description = "Fetch collections of git projects"
 readme = "README.rst"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 license = "MIT"
 license-files = ["LICENSE.txt"]
 classifiers = [
@@ -24,6 +24,7 @@ classifiers = [
     "Operating System :: Unix",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -32,7 +33,6 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "click<9",
     "runez<6",
 ]
 dynamic = ["version"]
@@ -43,8 +43,16 @@ mgit = "mgit.cli:main"
 [project.urls]
 Source = "https://github.com/zsimic/mgit"
 
+[dependency-groups]
+test = [
+    "pytest-cov",
+]
+dev = [
+    { include-group = "test" },
+]
+
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.9"
 include = ["src"]
 
 [tool.ruff]

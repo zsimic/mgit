@@ -1,228 +1,371 @@
-"""
-\b
-Advanced usage:
-  --clean show                  Show which local/remote branches can be cleaned
-  --clean local                 Clean local branches that were deleted from their corresponding remote
-  --clean remote                Clean merged remote branches
-  --clean all                   Clean local and merged remote branches
-  --clean reset                 Do a git --reset --hard + clean -fdx (nuke all changes, get back to pristine state)
-\b
-"""
+from __future__ import annotations
 
+import argparse
 import logging
+import re
 import sys
+from abc import ABC, abstractmethod
+from importlib.metadata import version
+from pathlib import Path
 
-import click
 import runez
 
-from mgit import get_target, GitCheckout
-from mgit.git import GitRunReport
-
-LOG = logging.getLogger(__name__)
-VALID_CLEAN_ACTIONS = ("show", "local", "remote", "all", "reset")
+from mgit import ProjectDir, Reporter
+from mgit.git import GitDir
 
 
-@runez.click.command()
-@runez.click.version()
-@runez.click.debug()
-@runez.click.color()
-@runez.click.log()
-@click.option("--clean", default=None, type=click.Choice(VALID_CLEAN_ACTIONS), help="Auto-clean branches")
-@click.option("-f", "--fetch", is_flag=True, default=False, help="Fetch from all remotes")
-@click.option("-p", "--pull", is_flag=True, default=False, help="Pull from tracking remote")
-@click.option("-s/-v", "--short/--verbose", is_flag=True, default=None, help="Short/verbose output")
-@click.option("-cs", is_flag=True, default=False, help="Handy shortcut for '--clean show'")
-@click.option("-cl", is_flag=True, default=False, help="Handy shortcut for '--clean local'")
-@click.option("-cr", is_flag=True, default=False, help="Handy shortcut for '--clean remote'")
-@click.option("-ca", is_flag=True, default=False, help="Handy shortcut for '--clean all'")
-@click.argument("target", required=False, default=None)
-def main(debug, log, clean, target, **kwargs):
-    """
-    Fetch collections of git projects
-    """
-    runez.system.AbortException = SystemExit
-    runez.date.DEFAULT_DURATION_SPAN = -2
-    runez.log.setup(debug=debug, console_format="%(levelname)s %(message)s", file_location=log, locations=None)
-
-    hc = handy_clean(kwargs)
-    if not clean:
-        clean = hc
-
-    target = get_target(target, **kwargs)
-
-    if clean is not None:
-        handle_clean(target, clean)
-        sys.exit(0)
-
-    target.print_status()
+def command_name_from_class(cls: type) -> str:
+    name = cls.__name__.removesuffix("Command")
+    return re.sub(r"(?<!^)(?=[A-Z])", "-", name).lower()
 
 
-def handy_clean(kwargs):
-    """
-    :param kwargs: Pop all handy shortcuts from kwargs
-    :return str|None: Equivalent full --clean option
-    """
-    cs = kwargs.pop("cs")
-    cl = kwargs.pop("cl")
-    cr = kwargs.pop("cr")
-    ca = kwargs.pop("ca")
-    if cs:
-        return "show"
+class CliCommand(ABC):
+    """API for all CLI commands."""
 
-    if cl:
-        return "local"
+    short_name: str | None = None
 
-    if cr:
-        return "remote"
+    @classmethod
+    def command_name(cls) -> str:
+        return command_name_from_class(cls)
 
-    if ca:
-        return "all"
+    @classmethod
+    def summary(cls) -> str:
+        """Every command class must have a summary (intentional crash otherwise)"""
+        assert cls.__doc__  # noqa: S101, internal error
+        return cls.__doc__.splitlines()[0]
 
-    return None
+    @classmethod  # noqa: B027 - optional hook
+    def add_arguments(cls, _parser: argparse.ArgumentParser):
+        """Add command-specific arguments."""
 
+    @classmethod
+    @abstractmethod
+    def from_namespace(cls, _namespace: argparse.Namespace) -> CliCommand:
+        """Create a command from parsed CLI arguments."""
 
-def run_git(target, fatal, *args):
-    """Run git command on target, abort if command exits with error code"""
-    error = target.git.run_raw_git_command(*args)
-    if error.has_problems:
-        if fatal:
-            runez.abort(error.representation())
-
-        print(error.representation())
-        return 0
-
-    return 1
+    @abstractmethod
+    def run(self):
+        """Run the command."""
 
 
-def clean_reset(target):
-    """
-    :param GitCheckout target: Target to reset
-    """
-    fallback = target.git.fallback_branch()
-    if not fallback:
-        runez.abort("Can't determine a branch that can be used for reset")
+class FolderTargetCommand(CliCommand):
+    folder: Path | None = None
 
-    run_git(target, True, "reset", "--hard", "HEAD")
-    run_git(target, True, "clean", "-fdx")
-    if fallback != target.git.branches.current:
-        run_git(target, True, "checkout", fallback)
+    def __init__(self, folder: Path | None):
+        self.folder = folder
 
-    run_git(target, True, "pull")
-    target.git.reset_cached_properties()
-    print(target.header())
+    @classmethod
+    def add_arguments(cls, parser: argparse.ArgumentParser):
+        parser.add_argument("folder", nargs="?", type=Path)
+
+    @classmethod
+    def from_namespace(cls, namespace: argparse.Namespace) -> FolderTargetCommand:
+        return cls(folder=namespace.folder)
+
+    @staticmethod
+    def current_checkout() -> Path | None:
+        current = Path.cwd()
+        for candidate in (current, *current.parents):
+            if (candidate / ".git").is_dir():
+                return candidate
+
+    def target(self) -> GitDir | ProjectDir:
+        if self.folder is None:
+            current = self.current_checkout()
+            if current:
+                return GitDir(current)
+
+        folder = (self.folder or Path(".")).expanduser().absolute()
+        Reporter.abort_if(not folder.is_dir(), f"No folder '{runez.short(folder)}'")
+        if (folder / ".git").is_dir():
+            return GitDir(folder)
+
+        return ProjectDir(folder)
+
+    def run(self):
+        """Run the command."""
+        target = self.target()
+        if isinstance(target, GitDir):
+            return self.run_single(target)
+
+        return self.run_multi(target)
+
+    @abstractmethod
+    def run_single(self, git: GitDir):
+        """Run this command for one git dir."""
+
+    def run_multi(self, _project_dir: ProjectDir) -> None:
+        """Run this command for all git dirs in `project_dir`."""
+        Reporter.abort(f"{self.command_name()} only supports one git checkout")
 
 
-def clean_show(target):
-    """
-    :param GitCheckout target: Target to show
-    """
-    print(target.header())
-    if not target.git.local_cleanable_branches:
-        print("  No local branches can be cleaned")
-
-    else:
-        for branch in target.git.local_cleanable_branches:
-            print("  {} branch {} can be cleaned".format(runez.bold("local"), runez.bold(branch)))
-
-    if not target.git.remote_cleanable_branches:
-        print("  No remote branches can be cleaned")
-
-    else:
-        for branch in target.git.remote_cleanable_branches:
-            print("  %s can be cleaned" % (runez.bold(branch)))
+COMMANDS: list[type[CliCommand]] = []
+COMMAND_BY_TOKEN: dict[str, type[CliCommand]] = {}
 
 
-def handle_single_clean(target, what):
-    """
-    :param GitCheckout target: Single checkout to clean
-    :param str what: Operation
-    """
-    report = target.git.fetch()
-    if report.has_problems:
-        if what != "reset":
-            what = "clean"
+def register_cli_command(name: str | None, command: type[CliCommand]):
+    assert name  # noqa: S101, this would be an internal error, detected at test time
+    assert name not in COMMAND_BY_TOKEN  # noqa: S101
+    COMMAND_BY_TOKEN[name] = command
 
-        print(target.header(GitRunReport(report).add(problem="<can't %s" % what)))
-        runez.abort("")
 
-    if what == "reset":
-        return clean_reset(target)
+def cli_command(command: type[CliCommand]) -> type[CliCommand]:
+    COMMANDS.append(command)
+    register_cli_command(command.command_name(), command)
+    register_cli_command(command.short_name, command)
+    return command
 
-    if what == "show":
-        return clean_show(target)
 
-    total_cleaned = 0
-    print(target.header())
+@cli_command
+class StatusCommand(FolderTargetCommand):
+    """Show repo or workspace status."""
 
-    if what in "remote all":
-        if not target.git.remote_cleanable_branches:
-            print("  No remote branches can be cleaned")
+    short_name = "s"
+
+    def run_single(self, git: GitDir):
+        print(git.status_line())
+        details = git.status_details()
+        if details:
+            print(details)
+
+    def run_multi(self, project_dir: ProjectDir):
+        for git in project_dir.git_dirs:
+            print(project_dir.prefixed_line(git, git.status_line()))
+
+
+@cli_command
+class FetchCommand(FolderTargetCommand):
+    """Fetch remotes, then show status."""
+
+    short_name = "f"
+
+    def run_single(self, git: GitDir):
+        report = git.fetch_now().require_success("fetch")
+        print(git.status_line(report))
+        details = git.status_details()
+        if details:
+            print(details)
+
+    def run_multi(self, project_dir: ProjectDir):
+        for git in project_dir.git_dirs:
+            report = git.fetch_now()
+            print(project_dir.prefixed_line(git, git.status_line(report)))
+
+
+@cli_command
+class PullCommand(FolderTargetCommand):
+    """Pull with rebase when the worktree is safe."""
+
+    short_name = "p"
+
+    def run_single(self, git: GitDir):
+        report = git.pull().require_success("pull")
+        print(git.status_line(report))
+        details = git.status_details()
+        if details:
+            print(details)
+
+    def run_multi(self, project_dir: ProjectDir):
+        for git in project_dir.git_dirs:
+            report = git.pull()
+            print(project_dir.prefixed_line(git, git.status_line(report)))
+
+
+@cli_command
+class MainCommand(FolderTargetCommand):
+    """Checkout the default branch."""
+
+    short_name = "m"
+
+    def run_single(self, git: GitDir):
+        report = git.checkout_default_branch()
+        print(git.status_line(report))
+        details = git.status_details()
+        if details:
+            print(details)
+
+
+@cli_command
+class BranchesCommand(FolderTargetCommand):
+    """Show local branches."""
+
+    short_name = "b"
+
+    def run_single(self, git: GitDir):
+        details = git.branch_details()
+        if details:
+            print(details)
+
+    def run_multi(self, project_dir: ProjectDir):
+        show_names = len(project_dir.git_dirs) > 1
+        for git in project_dir.git_dirs:
+            if show_names:
+                print(f"{git.basename}:")
+
+            indent = "  " if show_names else ""
+            details = git.branch_details(indent=indent)
+            if details:
+                print(details)
+
+
+@cli_command
+class GroomCommand(FolderTargetCommand):
+    """Fetch, return to default branch, pull, and clean the groomed branch."""
+
+    short_name = "g"
+
+    def _checkout_default_branch(self, git: GitDir, branch: str):
+        git.checked_git_command("checkout", branch)
+        git.clear_cached_state()
+        print(f"Checked out {git.represented_branch(branch)} branch")
+
+    def _delete_local_branch(self, git: GitDir, cleanup):
+        args = ["branch", "--delete", cleanup.name]
+        if cleanup.force_delete:
+            args.insert(2, "--force")
+
+        git.checked_git_command(*args)
+        print(f"Deleted branch {git.represented_branch(cleanup.name)}")
+        git.clear_cached_state()
+
+    def _delete_remote_branch(self, git: GitDir, cleanup):
+        branch_ref = f"refs/heads/{cleanup.branch}"
+        git.checked_git_command(
+            "push",
+            f"--force-with-lease={branch_ref}:{cleanup.expected_oid}",
+            "--delete",
+            cleanup.remote,
+            branch_ref,
+        )
+        print(f"Deleted remote branch {cleanup.remote}/{git.represented_branch(cleanup.branch)}")
+        git.clear_cached_state()
+
+    def run_single(self, git: GitDir):
+        report = git.fetch_now().require_success("groom")
+        refs = git.refs
+        current_branch = refs.current
+        default_branch = git.default_branch
+        if current_branch == default_branch:
+            report.add(note="already on default branch")
+            print(git.status_line(report))
+            return
+
+        git.status.require_clean("groom")
+        remote_cleanup = None
+        local_cleanup = git.cleanable_local_branch(current_branch, include_current=True)
+        if not local_cleanup:
+            Reporter.abort(f"Branch {git.represented_branch(current_branch)} can't be cleaned")
+
+        upstream = refs.upstreams.get(current_branch)
+        if upstream and refs.has_remote_branch(upstream.remote, upstream.branch):
+            remote_cleanup = git.cleanable_current_remote_branch()
+            if not remote_cleanup:
+                Reporter.abort(f"Remote branch {upstream.remote}/{git.represented_branch(upstream.branch)} can't be cleaned automatically")
+
+        self._checkout_default_branch(git, default_branch)
+        report = git.pull().require_success("groom")
+        git.clear_cached_state()
+        if remote_cleanup:
+            self._delete_remote_branch(git, remote_cleanup)
+
+        self._delete_local_branch(git, local_cleanup)
+        print(git.status_line(report))
+
+
+class CommandHelpFormatter(argparse.HelpFormatter):
+    """Show subcommands as a compact command list."""
+
+    def _format_action(self, action: argparse.Action) -> str:
+        if isinstance(action, argparse._SubParsersAction):
+            return "".join(self._format_action(choice_action) for choice_action in action._get_subactions())
+
+        return super()._format_action(action)
+
+
+def add_command_parser(subparsers: argparse._SubParsersAction, command: type[CliCommand]):
+    aliases = [command.short_name] if command.short_name else []
+    parser = subparsers.add_parser(
+        command.command_name(),
+        aliases=aliases,
+        description=command.summary(),
+        formatter_class=CommandHelpFormatter,
+        help=command.summary(),
+        prog=f"mgit {command.command_name()}",
+    )
+    parser._action_groups[0].title = "Arguments"
+    command.add_arguments(parser)
+    parser.set_defaults(command_type=command)
+
+
+def split_global_args(args: list[str]) -> tuple[list[str], list[str]]:
+    global_args = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in {"--help", "-v", "--verbose", "--version"}:
+            global_args.append(arg)
+            i += 1
+            continue
+
+        if arg == "--color":
+            global_args.append(arg)
+            i += 1
+            if i < len(args):
+                global_args.append(args[i])
+                i += 1
+            continue
+
+        if arg.startswith("--color="):
+            global_args.append(arg)
+            i += 1
+            continue
+
+        if arg.startswith("-"):
+            global_args.append(arg)
+            i += 1
+
+        break
+
+    return global_args, args[i:]
+
+
+def normalized_cli_args(args: list[str]) -> list[str]:
+    global_args, command_args = split_global_args(args)
+    if global_args and global_args[-1] == "--color":
+        return global_args
+
+    if command_args:
+        command = COMMAND_BY_TOKEN.get(command_args[0])
+        if command:
+            command_args[0] = command.command_name()
 
         else:
-            total = len(target.git.remote_cleanable_branches)
-            cleaned = 0
-            for branch in target.git.remote_cleanable_branches:
-                remote, _, name = branch.partition("/")
-                if not remote and name:
-                    raise Exception("Unknown branch spec '%s'" % branch)
+            command_args.insert(0, StatusCommand.command_name())
 
-                if run_git(target, False, "branch", "--delete", "--remotes", branch):
-                    cleaned += run_git(target, False, "push", "--delete", remote, name)
+    else:
+        command_args.append(StatusCommand.command_name())
 
-            total_cleaned += cleaned
-            if cleaned == total:
-                print("%s cleaned" % runez.plural(cleaned, "remote branch"))
-
-            else:
-                print(f"{cleaned}/{total} remote branches cleaned")
-
-            target.git.reset_cached_properties()
-            if what == "all":
-                # Fetch to update remote branches (and correctly detect new dangling local)
-                target.git.fetch()
-
-    if what in "local all":
-        if not target.git.local_cleanable_branches:
-            print("  No local branches can be cleaned")
-
-        else:
-            total = len(target.git.local_cleanable_branches)
-            cleaned = 0
-            for branch in target.git.local_cleanable_branches:
-                if branch == target.git.branches.current:
-                    fallback = target.git.fallback_branch()
-                    if not fallback:
-                        print("Skipping branch '%s', can't determine fallback branch" % target.git.branches.current)
-                        continue
-
-                    run_git(target, True, "checkout", fallback)
-                    run_git(target, True, "pull")
-
-                cleaned += run_git(target, False, "branch", "--delete", branch)
-
-            total_cleaned += cleaned
-            if cleaned == total:
-                print(runez.bold("%s cleaned" % runez.plural(cleaned, "local branch")))
-
-            else:
-                print(runez.orange(f"{cleaned}/{total} local branches cleaned"))
-
-            target.git.reset_cached_properties()
-
-    if total_cleaned:
-        print(target.header())
+    return global_args + command_args
 
 
-def handle_clean(target, what):
-    if isinstance(target, GitCheckout):
-        handle_single_clean(target, what)
-        return
+def main():
+    parser = argparse.ArgumentParser(
+        prog="mgit",
+        usage="mgit [GLOBAL_OPTIONS] [COMMAND] [ARGS...]",
+        description="Inspect and update git checkouts.",
+        formatter_class=CommandHelpFormatter,
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging.")
+    parser.add_argument("--color", choices=("auto", "always", "never"), default="auto", help="Control ANSI color output.")
+    parser.add_argument("--version", action="version", version=f"mgit {version('mgit')}")
+    subparsers = parser.add_subparsers(dest="command", title="Commands", metavar="COMMAND")
+    subparsers.required = True
+    for command in COMMANDS:
+        add_command_parser(subparsers, command)
 
-    if what in "remote reset":
-        runez.abort("Only '--clean show' and '--clean local' supported for multiple git checkouts for now")
-
-    target.prefs.name_size = None
-    target.prefs.set_short(True)
-    for sub_target in target.checkouts:
-        handle_single_clean(sub_target, what)
-        print("----")
+    namespace = parser.parse_args(normalized_cli_args(sys.argv[1:]))
+    command = namespace.command_type.from_namespace(namespace)
+    with runez.ActivateColors(None if namespace.color == "auto" else namespace.color == "always"):
+        runez.date.DEFAULT_DURATION_SPAN = -2
+        runez.log.setup(debug=namespace.verbose, level=logging.INFO, console_format="%(levelname)s %(message)s", locations=None)
+        command.run()

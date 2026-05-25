@@ -21,7 +21,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - uses: astral-sh/setup-uv@v7
+    - uses: astral-sh/setup-uv@v8.1.0
     - run: uvx --with tox-uv tox -e py
 
   linters:
@@ -34,5 +34,5 @@ jobs:
       with:
         python-version: "3.14"
 
-    - uses: astral-sh/setup-uv@v7
+    - uses: astral-sh/setup-uv@v8.1.0
     - run: uvx --with tox-uv tox -e style
