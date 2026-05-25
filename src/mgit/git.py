@@ -631,8 +631,8 @@ class GitStatus:
     def upstream_delta(self) -> str:
         """Short report on divergence from the upstream branch."""
         return Reporter.joined(
-            self.ahead and f"{self.ahead} ahead",
-            self.behind and f"{self.behind} behind",
+            self.ahead and Reporter.note(f"{self.ahead} ahead"),
+            self.behind and Reporter.note(f"{self.behind} behind"),
         )
 
     def pending_change_counts(self) -> tuple[int, int, int]:
