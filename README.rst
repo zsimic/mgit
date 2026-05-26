@@ -55,7 +55,8 @@ The short names are the intended interface:
 - ``fetch`` / ``f``: refresh remote refs, then show what changed.
 - ``pull`` / ``p``: pull with rebase only when pending work will not be disturbed.
 - ``main`` / ``m``: checkout the default branch, even if it is ``master``.
-- ``branches`` / ``b``: list local branches with useful small annotations.
+- ``branches`` / ``b``: list local branches with presence and cleanup annotations.
+- ``legend`` / ``l``: explain status and branch symbols.
 - ``groom`` / ``g``: safely finish with the merged branch you are currently on.
 
 The command shape is::
@@ -92,9 +93,27 @@ In one glance you get:
 
 ``✅`` means recently refreshed, ``☑️`` means the local picture may be older,
 ``⌛`` calls out notably stale fetch information, a branch-level ``🪦`` means
-its upstream is gone, and ``👻`` means detached ``HEAD``. A bracket such as
+the branch has been proven cleanable, and ``👻`` means detached ``HEAD``. A bracket such as
 ``[+2🪦+1]`` says that, besides the current and default branches, two local
 branches have been proven cleanable and one remains.
+
+The branch list spells that state out when you need to decide what is done::
+
+    mgit b
+      commands-instead-of-flags💾☁️🪦 [cleanable]
+      main                            [default]
+    * more-cleanup💾                  [current]
+      v2gpt💾☁️
+
+Run ``mgit legend`` for the symbol key, or ``mgit b --legend`` to append it
+below the branch listing.
+
+``💾`` means the branch is local and ``☁️`` means its configured upstream is
+still present in the fetched remote refs. ``🪦 [cleanable]`` appears only
+when the local branch, and any shown upstream ref, is already merged into the
+default branch or is content-equivalent after a squash merge. An unpublished
+branch carrying new work therefore appears as ``💾`` rather than looking
+abandoned.
 
 For a single checkout, status also prints the pending paths. Workspace output
 keeps to one line per repo, so you can keep checking a directory full of
