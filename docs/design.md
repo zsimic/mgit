@@ -24,9 +24,10 @@ otherwise require repeated subprocess calls.
   snapshot, preferring `origin/HEAD` and falling back to a visible `main` or
   `master` branch.
 
-- `GitRefs.orphan_branches`: Derived cached data owned by a particular
-  `GitRefs` snapshot. It is discarded naturally when `GitDir.lazy_refs` is
-  replaced, so it must not be invalidated separately.
+- `GitDir.branch_infos`: Derived branch display data combining a local ref,
+  its configured upstream presence, and local/remote cleanup proofs. It is
+  invalidated together with `GitDir.lazy_refs`, because either ref movement or
+  fetch/prune results can change whether a branch is cleanable.
 
 ## Invalidation Requirements
 
@@ -34,15 +35,15 @@ The operations below may run during one lifetime of a `GitDir` instance:
 
 | Operation | `status` | `refs` | Reason |
 | --- | --- | --- | --- |
-| `fetch_now()` | stale | stale | Ahead/behind and remote-tracking branches can change; pruning can alter orphan detection. |
+| `fetch_now()` | stale | stale | Ahead/behind and remote-tracking branches can change; pruning can alter branch presence and cleanup proof. |
 | checkout | stale | stale | The checked-out branch and displayed status can change. |
 | `pull()` | stale | stale | Worktree/status and remote-tracking refs may change, including when the pull fails after doing some work. |
 | delete local branch | unchanged in the `groom` flow | stale | The local branch collection changes; deletion occurs after checkout. |
 | delete remote branch | unchanged in the `groom` flow | stale | The remote-tracking branch collection changes. |
 
-`default_branch` and `orphan_branches` share the lifetime of their owning
-`GitRefs` snapshot. Replacing stale `refs` naturally recomputes both from the
-fresh snapshot.
+`default_branch` shares the lifetime of its owning `GitRefs` snapshot.
+Replacing stale `refs` also discards derived `branch_infos` so cleanup state
+is recomputed from the fresh snapshot.
 
 ## Current Implementation Note
 

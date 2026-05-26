@@ -14,6 +14,7 @@ def test_command_help(cli):
     assert cli.succeeded
     assert "Commands:" in cli.logged
     assert "status (s)" in cli.logged
+    assert "legend (l)" in cli.logged
 
     cli.run("s --help")
     assert cli.succeeded
@@ -27,6 +28,7 @@ def test_cli_arg_normalization():
     assert normalized_cli_args(["workspace"]) == ["status", "workspace"]
     assert normalized_cli_args(["f", "workspace"]) == ["fetch", "workspace"]
     assert normalized_cli_args(["--color=always", "g", "checkout"]) == ["--color=always", "groom", "checkout"]
+    assert normalized_cli_args(["l"]) == ["legend"]
 
 
 def test_abort_reporting(cli, git):
@@ -119,19 +121,19 @@ def test_status_line_partitions_other_branches(cli, git):
     assert "foo 🪦 [+1🪦+1]" in cli.logged
 
 
-def test_dirty_orphan_status_keeps_tombstone(cli, git):
+def test_dirty_cleanable_status_keeps_tombstone(cli, git):
     repo = git.seeded("repo")
-    repo.checkout("-b", "orphan")
-    repo.push("-u", "origin", "orphan")
+    repo.checkout("-b", "cleanable")
+    repo.push("-u", "origin", "cleanable")
     repo.checkout("main")
-    repo.push("origin", "--delete", "orphan")
-    repo.checkout("orphan")
+    repo.push("origin", "--delete", "cleanable")
+    repo.checkout("cleanable")
     repo.write_file("scratch.txt", "pending")
 
     cli.run("repo")
 
     assert cli.succeeded
-    assert "orphan 🪦 🆕1" in cli.logged
+    assert "cleanable 🪦 🆕1" in cli.logged
 
 
 def test_verbose_enables_debug_logging(cli, git):
@@ -146,10 +148,25 @@ def test_verbose_enables_debug_logging(cli, git):
     assert "DEBUG Running:" in cli.logged
 
 
+def test_legend_describes_display_symbols(cli):
+    cli.run("legend")
+
+    assert cli.succeeded
+    assert "✅ repo freshly fetched (within 30 seconds)" in cli.logged
+    assert "☑️ repo not freshly fetched (more than 30 seconds ago)" in cli.logged
+    assert "⌛ repo fetch notably stale (more than 12 hours ago)" in cli.logged
+    assert "💾 branch present locally" in cli.logged
+    assert "☁️ configured upstream present in fetched remote refs" in cli.logged
+    assert "🪦 cleanable branch" in cli.logged
+    assert "👻 detached HEAD" in cli.logged
+    assert "[+N🪦+N] cleanable and remaining local branches" in cli.logged
+
+
 def test_branches_workspace_lists_local_branches(cli, git):
     git.init("workspace/one")
     two = git.init("workspace/two")
     two.checkout("-b", "topic")
+    two.commit_file("topic.txt", "in progress", "topic work")
 
     cli.run("branches workspace")
 
@@ -158,28 +175,90 @@ def test_branches_workspace_lists_local_branches(cli, git):
     assert "one:" in cli.logged
     assert "two:" in cli.logged
     assert "* topic" in cli.logged
+    assert "topic💾" in cli.logged
+    assert "[current]" in cli.logged
     assert "[default]" in cli.logged
-    assert "[orphaned]" in cli.logged
+    assert "[cleanable]" not in cli.logged
+
+
+def test_branches_can_append_legend(cli, git):
+    git.init("repo")
+
+    cli.run("branches --legend repo")
+    assert cli.succeeded
+    assert "* main [default] [current]\n\n✅ repo freshly fetched" in str(cli.logged.stdout)
+
+    cli.run("b -l repo")
+    assert cli.succeeded
+    assert "💾 branch present locally" in cli.logged
+
+
+def test_branches_distinguish_cleanable_and_in_progress_refs(cli, git):
+    repo = git.seeded("repo")
+    repo.checkout("-b", "done")
+    repo.commit_file("done.txt", "complete", "done work")
+    repo.push("-u", "origin", "done")
+    repo.checkout("main")
+    repo.run_git("merge", "--no-ff", "done", "-m", "merge done")
+    repo.push("origin", "main")
+    repo.checkout("-b", "remote-work", "main")
+    repo.commit_file("remote.txt", "in progress", "remote work")
+    repo.push("-u", "origin", "remote-work")
+    repo.checkout("-b", "local-work", "main")
+    repo.commit_file("local.txt", "not pushed", "local work")
+
+    cli.run("branches repo")
+
+    assert cli.succeeded
+    lines = {
+        name: next(line for line in str(cli.logged.stdout).splitlines() if name in line) for name in ("done", "local-work", "remote-work")
+    }
+    assert "done💾☁️🪦" in lines["done"]
+    assert "[cleanable]" in lines["done"]
+    assert "* local-work💾" in lines["local-work"]
+    assert "[current]" in lines["local-work"]
+    assert "☁️" not in lines["local-work"]
+    assert "🪦" not in lines["local-work"]
+    assert "remote-work💾☁️" in lines["remote-work"]
+    assert "🪦" not in lines["remote-work"]
+
+
+def test_unmerged_branch_with_gone_upstream_is_not_cleanable(cli, git):
+    repo = git.seeded("repo")
+    repo.checkout("-b", "not-done")
+    repo.commit_file("work.txt", "in progress", "unmerged work")
+    repo.push("-u", "origin", "not-done")
+    repo.checkout("main")
+    repo.push("origin", "--delete", "not-done")
+    repo.checkout("not-done")
+
+    cli.run("repo")
+
+    assert cli.succeeded
+    assert "not-done ✅" in cli.logged
+    assert "🪦" not in cli.logged
 
 
 def test_branch_names_are_styled_consistently(cli, git):
     repo = git.seeded("repo")
     repo.checkout("-b", "topic")
+    repo.commit_file("topic.txt", "in progress", "topic work")
     repo.push("-u", "origin", "topic")
-    repo.checkout("-b", "orphan")
-    repo.push("-u", "origin", "orphan")
+    repo.checkout("main")
+    repo.checkout("-b", "cleanable")
+    repo.push("-u", "origin", "cleanable")
     repo.checkout("topic")
-    repo.push("origin", "--delete", "orphan")
+    repo.push("origin", "--delete", "cleanable")
     with runez.ActivateColors(True):
         default_name = runez.bold(runez.green("main"))
         topic_name = runez.bold("topic")
-        orphan_name = runez.bold(runez.orange("orphan"))
+        cleanable_name = runez.bold(runez.orange("cleanable"))
 
     cli.run("--color always branches repo")
     assert cli.succeeded
     assert default_name in cli.logged
     assert topic_name in cli.logged
-    assert orphan_name in cli.logged
+    assert cleanable_name in cli.logged
 
     cli.run("--color always repo")
     assert cli.succeeded
@@ -194,14 +273,14 @@ def test_branch_names_are_styled_consistently(cli, git):
     assert cli.succeeded
     assert f"checked out {default_name}" in cli.logged
 
-    repo.checkout("orphan")
+    repo.checkout("cleanable")
     cli.run("--color always repo")
     assert cli.succeeded
-    assert f"{orphan_name} 🪦" in cli.logged
+    assert f"{cleanable_name} 🪦" in cli.logged
 
     cli.run("--color always fetch repo")
     assert cli.succeeded
-    assert f"{orphan_name} 🪦" in cli.logged
+    assert f"{cleanable_name} 🪦" in cli.logged
 
 
 def test_pull_workspace_recaps_each_checkout(cli, git):

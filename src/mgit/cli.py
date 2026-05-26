@@ -187,14 +187,33 @@ class MainCommand(FolderTargetCommand):
 
 @cli_command
 class BranchesCommand(FolderTargetCommand):
-    """Show local branches."""
+    """Show local branches and their cleanup state."""
 
     short_name = "b"
 
+    def __init__(self, folder: Path | None, with_legend=False):
+        super().__init__(folder)
+        self.with_legend = with_legend
+
+    @classmethod
+    def add_arguments(cls, parser: argparse.ArgumentParser):
+        parser.add_argument("-l", "--legend", action="store_true", help="Show symbol legend below the branch list.")
+        super().add_arguments(parser)
+
+    @classmethod
+    def from_namespace(cls, namespace: argparse.Namespace) -> FolderTargetCommand:
+        return cls(folder=namespace.folder, with_legend=namespace.legend)
+
+    def print_legend(self):
+        if self.with_legend:
+            print(f"\n{Reporter.legend()}")
+
     def run_single(self, git: GitDir):
-        details = git.lazy_refs.branch_details()
+        details = git.branch_details()
         if details:
             print(details)
+
+        self.print_legend()
 
     def run_multi(self, project_dir: ProjectDir):
         show_names = len(project_dir.git_dirs) > 1
@@ -203,9 +222,25 @@ class BranchesCommand(FolderTargetCommand):
                 print(f"{git.basename}:")
 
             indent = "  " if show_names else ""
-            details = git.lazy_refs.branch_details(indent=indent)
+            details = git.branch_details(indent=indent)
             if details:
                 print(details)
+
+        self.print_legend()
+
+
+@cli_command
+class LegendCommand(CliCommand):
+    """Explain status and branch symbols."""
+
+    short_name = "l"
+
+    @classmethod
+    def from_namespace(cls, _namespace: argparse.Namespace) -> LegendCommand:
+        return cls()
+
+    def run(self):
+        print(Reporter.legend())
 
 
 @cli_command

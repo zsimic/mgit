@@ -26,7 +26,7 @@ class Reporter:
     log = logging.getLogger("mgit")
 
     branch_default = runez.green
-    branch_orphaned = runez.orange
+    branch_cleanable = runez.orange
     problem = runez.red
     note = runez.purple
     progress = runez.plain
@@ -58,6 +58,36 @@ class Reporter:
     @staticmethod
     def debug(message: str, *args: object):
         Reporter.log.debug(message, *args)
+
+    i_fresh = "✅"
+    i_not_fresh = "☑️"
+    i_stale = "⌛"
+    i_local = "💾"
+    i_remote = "☁️"
+    i_cleanable = "🪦"
+    i_detached = "👻"
+    i_modified = "✏️"
+    i_deleted = "🗑️"
+    i_untracked = "🆕"
+
+    @classmethod
+    def legend(cls) -> str:
+        """Explanation of status and branch symbols."""
+        fresh = runez.represented_duration(FRESH_FETCH_THRESHOLD, span=1)
+        stale = runez.represented_duration(FRESHNESS_THRESHOLD, span=1)
+        return Reporter.joined_lines(
+            f"{cls.i_fresh} repo freshly fetched (within {fresh})",
+            f"{cls.i_not_fresh} repo not freshly fetched (more than {fresh} ago)",
+            f"{cls.i_stale} repo fetch notably stale (more than {stale} ago)",
+            f"{cls.i_local} branch present locally",
+            f"{cls.i_remote} configured upstream present in fetched remote refs",
+            f"{cls.i_cleanable} cleanable branch",
+            f"{cls.i_detached} detached HEAD",
+            f"{cls.i_modified} modified files",
+            f"{cls.i_deleted} deleted files",
+            f"{cls.i_untracked} new (untracked) files",
+            f"[+N{cls.i_cleanable}+N] cleanable and remaining local branches",
+        )
 
 
 def compact_git_error(proc: subprocess.CompletedProcess[str]) -> str | None:
@@ -178,6 +208,23 @@ class CleanableRemoteBranch:
     expected_oid: str
 
 
+@dataclass(frozen=True)
+class BranchInfo:
+    """Presence and cleanup proof for one displayed local branch."""
+
+    name: str
+    has_local: bool
+    upstream: BranchUpstream | None = None
+    has_remote: bool = False
+    local_cleanup: CleanableLocalBranch | None = None
+    remote_cleanup: CleanableRemoteBranch | None = None
+
+    @property
+    def cleanable(self) -> bool:
+        """True if each present ref represented by this branch can be removed."""
+        return bool(self.local_cleanup and (not self.has_remote or self.remote_cleanup))
+
+
 class GitRefs:
     """Repository ref and upstream snapshot."""
 
@@ -253,39 +300,8 @@ class GitRefs:
         return branch
 
     def is_protected_branch(self, name: str) -> bool:
-        """True if branch should not be cleaned or reported as orphaned."""
+        """True if branch should not be cleaned."""
         return bool(name and (name == self.default_branch or name in self.default_branches.values()))
-
-    @cached_property
-    def orphan_branches(self) -> list[str]:
-        """Local branch names that were deleted on their corresponding remote."""
-        result = []
-        for name in sorted(self.local):
-            upstream = self.upstreams.get(name)
-            if not upstream or not self.has_remote_branch(upstream.remote, upstream.branch):
-                result.append(name)
-
-        return result
-
-    def is_orphan_branch(self, name: str) -> bool:
-        """True if branch is an unprotected orphan."""
-        return bool(name and name in self.orphan_branches and not self.is_protected_branch(name))
-
-    def annotated_branch(self, width: int, name: str) -> str:
-        padding = " " * (width - len(name))
-        result = ["*" if name == self.current else " ", f"{self.represented_branch(name)}{padding}"]
-        if name == self.default_branch:
-            result.append(Reporter.branch_default("[default]"))
-
-        if self.is_orphan_branch(name):
-            result.append(Reporter.branch_orphaned("[orphaned]"))
-
-        return Reporter.joined(result)
-
-    def branch_details(self, indent="") -> str:
-        branches = sorted(self.local) or [self.current]
-        width = max(len(name) for name in branches)
-        return Reporter.joined_lines((self.annotated_branch(width, name) for name in branches), indent=indent)
 
     def cleanable_base_ref(self) -> str:
         """Ref that cleanup candidates must already be merged into."""
@@ -296,13 +312,13 @@ class GitRefs:
 
         return base_ref
 
-    def represented_branch(self, name: str) -> str:
+    def represented_branch(self, name: str, *, cleanable=False) -> str:
         """Styled representation of a branch name."""
         if name == self.default_branch:
             name = Reporter.branch_default(name)
 
-        elif self.is_orphan_branch(name):
-            name = Reporter.branch_orphaned(name)
+        elif cleanable:
+            name = Reporter.branch_cleanable(name)
 
         return runez.bold(name)
 
@@ -319,6 +335,7 @@ class GitDir:
         self.age = self._current_age()
         self._status: GitStatus | None = None
         self._refs: GitRefs | None = None
+        self._branch_infos: list[BranchInfo] | None = None
 
     @staticmethod
     def _detail_lines(items, state_style, worktree_style=None) -> list[str]:
@@ -341,12 +358,12 @@ class GitDir:
         edits, deletes, new = status.pending_change_counts()
         report = GitRunReport(report)
         if self.age is not None and self.age > FRESHNESS_THRESHOLD:
-            report.add(note=f"⌛{runez.represented_duration(self.age)}")
+            report.add(note=f"{Reporter.i_stale}{runez.represented_duration(self.age)}")
 
-        other_branches = refs.local - {refs.current, refs.default_branch}
-        cleanable = len(other_branches & self._local_cleanable_branches())
+        other_branches = [info for info in self.branch_infos if info.name not in (refs.current, refs.default_branch)]
+        cleanable = sum(info.cleanable for info in other_branches)
         remaining = len(other_branches) - cleanable
-        branch_summary = Reporter.joined(cleanable and f"+{cleanable}🪦", remaining and f"+{remaining}", separator="")
+        branch_summary = Reporter.joined(cleanable and f"+{cleanable}{Reporter.i_cleanable}", remaining and f"+{remaining}", separator="")
         if branch_summary:
             branch_summary = f"[{branch_summary}]"
 
@@ -354,9 +371,9 @@ class GitDir:
             self.represented_current_branch(),
             branch_summary,
             status.upstream_delta(),
-            edits and f"✏️{edits}",
-            deletes and f"🗑️{deletes}",
-            new and f"🆕{new}",
+            edits and f"{Reporter.i_modified}{edits}",
+            deletes and f"{Reporter.i_deleted}{deletes}",
+            new and f"{Reporter.i_untracked}{new}",
             report,
         )
 
@@ -364,22 +381,28 @@ class GitDir:
         refs = self.lazy_refs
         branch = refs.current
         if refs.detached:
-            icon = " 👻"
+            return f"{refs.represented_branch(branch)} {Reporter.i_detached}"
 
-        elif refs.is_orphan_branch(branch):
-            icon = " 🪦"
+        info = next((candidate for candidate in self.branch_infos if candidate.name == branch), None)
+        cleanable = bool(info and info.cleanable)
+        if cleanable:
+            icon = Reporter.i_cleanable
+
+        elif self.age is not None and self.age <= FRESH_FETCH_THRESHOLD:
+            icon = Reporter.i_fresh
 
         else:
-            icon = " ✅" if self.age is not None and self.age <= FRESH_FETCH_THRESHOLD else " ☑️"
+            icon = Reporter.i_not_fresh
 
-        return refs.represented_branch(branch) + icon
+        return f"{refs.represented_branch(branch, cleanable=cleanable)} {icon}"
 
     def status_details(self, indent="  ") -> str:
         result = []
         refs = self.lazy_refs
-        orphan_branches = [branch for branch in refs.orphan_branches if branch != refs.current and refs.is_orphan_branch(branch)]
-        if orphan_branches:
-            result.append(f"Orphan branches: {', '.join(refs.represented_branch(branch) for branch in orphan_branches)}")
+        cleanable_branches = [info for info in self.branch_infos if info.name != refs.current and info.cleanable]
+        if cleanable_branches:
+            names = ", ".join(refs.represented_branch(info.name, cleanable=True) for info in cleanable_branches)
+            result.append(f"Cleanable branches: {names}")
 
         status = self.lazy_status
         result.extend(self._detail_lines(status.modified, Reporter.index_change, Reporter.worktree_change))
@@ -417,6 +440,7 @@ class GitDir:
         proc = self.run_git_command("fetch", "--all", "--prune", exit_codes=exit_codes)
         self._status = None
         self._refs = None
+        self._branch_infos = None
         if proc.returncode == 0:
             self.age = 0
 
@@ -434,6 +458,7 @@ class GitDir:
             report.add(progress=f"checked out {refs.represented_branch(branch)}")
             self._status = None
             self._refs = None
+            self._branch_infos = None
 
         return report
 
@@ -458,6 +483,7 @@ class GitDir:
         proc = self.run_git_command("pull", "--rebase", exit_codes=exit_codes)
         self._status = None
         self._refs = None
+        self._branch_infos = None
         report = GitRunReport(note=f"was {note}")
         if proc.returncode:
             report.cant_pull(compact_git_error(proc))
@@ -492,6 +518,60 @@ class GitDir:
 
         return self._refs
 
+    def branch_info(self, name: str) -> BranchInfo:
+        """Summarize the local branch and its configured upstream."""
+        refs = self.lazy_refs
+        upstream = refs.upstreams.get(name)
+        has_local = name in refs.local
+        has_remote = bool(upstream and refs.has_remote_branch(upstream.remote, upstream.branch))
+        local_cleanup = self.cleanable_local_branch(name, include_current=True) if has_local else None
+        remote_cleanup = self.cleanable_remote_branch(upstream) if has_remote else None
+        return BranchInfo(name, has_local, upstream, has_remote, local_cleanup, remote_cleanup)
+
+    @property
+    def branch_infos(self) -> list[BranchInfo]:
+        """Local branches together with tracked remote presence and cleanup proof."""
+        if self._branch_infos is None:
+            self._branch_infos = [self.branch_info(name) for name in sorted(self.lazy_refs.local)]
+
+        return self._branch_infos
+
+    def branch_symbols(self, info: BranchInfo) -> str:
+        """Compact branch presence and cleanup symbols for display."""
+        refs = self.lazy_refs
+        if info.name == refs.default_branch:
+            return ""
+
+        return "".join(
+            (
+                Reporter.i_local if info.has_local else "",
+                Reporter.i_remote if info.has_remote else "",
+                Reporter.i_cleanable if info.cleanable else "",
+            )
+        )
+
+    def annotated_branch(self, width: int, info: BranchInfo) -> str:
+        refs = self.lazy_refs
+        symbols = self.branch_symbols(info)
+        padding = " " * (width - len(info.name) - len(symbols))
+        name = f"{refs.represented_branch(info.name, cleanable=info.cleanable)}{symbols}{padding}"
+        result = ["*" if info.name == refs.current else " ", name]
+        if info.name == refs.default_branch:
+            result.append(Reporter.branch_default("[default]"))
+
+        if info.name == refs.current:
+            result.append("[current]")
+
+        if info.cleanable:
+            result.append(Reporter.branch_cleanable("[cleanable]"))
+
+        return Reporter.joined(result)
+
+    def branch_details(self, indent="") -> str:
+        infos = self.branch_infos or [self.branch_info(self.lazy_refs.current)]
+        width = max(len(info.name) + len(self.branch_symbols(info)) for info in infos)
+        return Reporter.joined_lines((self.annotated_branch(width, info) for info in infos), indent=indent)
+
     def delete_local_branch(self, cleanup: CleanableLocalBranch):
         args = ["branch", "--delete", cleanup.name]
         if cleanup.force_delete:
@@ -499,6 +579,7 @@ class GitDir:
 
         self.checked_git_command(*args)
         self._refs = None
+        self._branch_infos = None
 
     def delete_remote_branch(self, cleanup: CleanableRemoteBranch):
         branch_ref = f"refs/heads/{cleanup.branch}"
@@ -510,6 +591,7 @@ class GitDir:
             branch_ref,
         )
         self._refs = None
+        self._branch_infos = None
 
     def is_ancestor(self, ref: str, target_ref: str) -> bool:
         """
@@ -553,10 +635,9 @@ class GitDir:
 
         return None
 
-    def cleanable_current_remote_branch(self) -> CleanableRemoteBranch | None:
-        """Return cleanup details for the current branch's safely deletable origin ref."""
+    def cleanable_remote_branch(self, upstream: BranchUpstream | None) -> CleanableRemoteBranch | None:
+        """Return cleanup details for a safely deletable tracked origin ref."""
         refs = self.lazy_refs
-        upstream = refs.upstreams.get(refs.current)
         default_branch = refs.default_branch
         if (
             not upstream
@@ -575,9 +656,10 @@ class GitDir:
         expected_oid = self.checked_git_command("rev-parse", branch_ref)
         return CleanableRemoteBranch(upstream.remote, upstream.branch, expected_oid)
 
-    def _local_cleanable_branches(self) -> set[str]:
-        """Local branches that can be cleaned"""
-        return {name for name in self.lazy_refs.local if self.cleanable_local_branch(name)}
+    def cleanable_current_remote_branch(self) -> CleanableRemoteBranch | None:
+        """Return cleanup details for the current branch's safely deletable origin ref."""
+        refs = self.lazy_refs
+        return self.cleanable_remote_branch(refs.upstreams.get(refs.current))
 
 
 class GitStatus:
