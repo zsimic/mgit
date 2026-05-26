@@ -20,15 +20,19 @@ Important files:
 
 Use these from the repo root:
 
-- `.venv/bin/pytest -q` for fast iteration.
+- `ruff check`, `ruff format --diff`, and `.venv/bin/pytest` are the normal
+  validation loop for changes. Run these before handing work back.
+- `.venv/bin/pytest -q` is also useful for compact fast iteration.
 - `.venv/bin/pytest -vv` when you want the full test names.
 - `.venv/bin/pytest -vv --cov=src tests` for local coverage checks.
 - `ruff check` and `ruff format --diff` directly; `ruff` is on `PATH`.
+
+The following do similar work as above, just tox wrapped (no need to use these usually)
 - `tox -e style` for the packaged style environment.
 - `tox -e py39` for the minimum supported Python version.
 - `tox -e py314` for the newest supported Python version.
-- `tox` as the final confidence run; it exercises multiple Python versions,
-  coverage, and linters.
+- `tox` for occasional deeper confidence runs; the user and CI run it
+  periodically, so do not run it for every ordinary iteration unless asked.
 
 `uv run pytest ...` also works when the synced environment is desired, but the
 local `.venv/bin/pytest` path is usually faster while iterating.

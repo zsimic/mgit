@@ -264,9 +264,10 @@ class GroomCommand(FolderTargetCommand):
         if not local_cleanup:
             Reporter.abort(f"Branch {refs.represented_branch(current_branch)} can't be cleaned")
 
-        upstream = refs.upstreams.get(current_branch)
+        current_info = refs.local_branch(current_branch)
+        upstream = current_info.upstream if current_info else None
         remote_cleanup = None
-        if upstream and refs.has_remote_branch(upstream.remote, upstream.branch):
+        if upstream and current_info and current_info.has_remote:
             remote_cleanup = git.cleanable_current_remote_branch()
             if not remote_cleanup:
                 Reporter.abort(f"Remote branch {upstream.remote}/{refs.represented_branch(upstream.branch)} can't be cleaned automatically")

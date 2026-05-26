@@ -16,18 +16,30 @@ otherwise require repeated subprocess calls.
   conditions such as a gone upstream; command flows combine that information
   with `GitRefs` where needed.
 
-- `GitDir.lazy_refs`: A `GitRefs` snapshot of the current branch, local branches,
-  configured remotes, remote-tracking branches, remote default branches, and
-  upstream configuration.
+- `GitDir.lazy_refs`: A `GitRefs` snapshot centered on
+  `GitRefs.all_branches: dict[str, BranchInfo]`. Local branches are keyed by
+  their local name; unpaired remote-tracking branches use a qualified key such
+  as `origin/topic`. Each `BranchInfo` carries raw local/tracked-remote refs,
+  OIDs, trees, upstream configuration, protection, and evaluated cleanup
+  proofs, plus its owning `GitRefs` snapshot for lazily derived ref metadata
+  such as protection. The snapshot in turn owns its `GitDir`, which branches
+  use for exceptional proof commands. A local branch and its tracked remote
+  share one `BranchInfo`; a remote branch with no matching local upstream gets
+  a qualified entry instead of a parallel remote-ref index. Plain inspection
+  does not run `git remote`; the pull flow queries configured remotes only
+  when it needs to distinguish a missing remote.
 
 - `GitRefs.default_branch`: The default branch derived for a particular refs
   snapshot, preferring `origin/HEAD` and falling back to a visible `main` or
   `master` branch.
 
-- `GitDir.branch_infos`: Derived branch display data combining a local ref,
-  its configured upstream presence, and local/remote cleanup proofs. It is
-  invalidated together with `GitDir.lazy_refs`, because either ref movement or
-  fetch/prune results can change whether a branch is cleanable.
+- `BranchInfo.cleanable`, `local_cleanup`, and `remote_cleanup`: Lazily ask
+  their owning `GitRefs` snapshot to fill merge and cleanup proof fields.
+  Normal ancestry-merged branches are discovered in one
+  `git for-each-ref --merged=<base>` query. Candidates not found there require
+  individual `git merge-tree` checks to retain squash-merge/content
+  equivalence support. This remains lazy because flows such as checkout and
+  pull may inspect and then immediately invalidate a refs snapshot.
 
 ## Invalidation Requirements
 
@@ -41,9 +53,9 @@ The operations below may run during one lifetime of a `GitDir` instance:
 | delete local branch | unchanged in the `groom` flow | stale | The local branch collection changes; deletion occurs after checkout. |
 | delete remote branch | unchanged in the `groom` flow | stale | The remote-tracking branch collection changes. |
 
-`default_branch` shares the lifetime of its owning `GitRefs` snapshot.
-Replacing stale `refs` also discards derived `branch_infos` so cleanup state
-is recomputed from the fresh snapshot.
+`default_branch` and evaluated `BranchInfo` cleanup state share the lifetime
+of their owning `GitRefs` snapshot. Replacing stale `refs` discards the branch
+map so raw refs and cleanup state are recomputed from the fresh snapshot.
 
 ## Current Implementation Note
 

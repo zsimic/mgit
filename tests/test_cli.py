@@ -7,6 +7,7 @@ from pathlib import Path
 import runez
 
 from mgit.cli import normalized_cli_args
+from mgit.git import GitDir, GitRefs
 
 
 def test_command_help(cli):
@@ -193,6 +194,16 @@ def test_branches_can_append_legend(cli, git):
     assert "💾 branch present locally" in cli.logged
 
 
+def test_branches_fall_back_to_symbolic_head_for_unborn_repo(cli, git):
+    git.init("repo", include_readme=False)
+
+    cli.run("-v branches repo")
+
+    assert cli.succeeded
+    assert "* main [default] [current]" in cli.logged
+    assert "symbolic-ref --quiet --short HEAD" in cli.logged
+
+
 def test_branches_distinguish_cleanable_and_in_progress_refs(cli, git):
     repo = git.seeded("repo")
     repo.checkout("-b", "done")
@@ -221,6 +232,72 @@ def test_branches_distinguish_cleanable_and_in_progress_refs(cli, git):
     assert "🪦" not in lines["local-work"]
     assert "remote-work💾☁️" in lines["remote-work"]
     assert "🪦" not in lines["remote-work"]
+
+    git_dir = GitDir(repo.cwd)
+    refs = git_dir.lazy_refs
+    main = refs.all_branches["main"]
+    assert "protected" not in main.__dict__
+    assert main.protected
+    assert main.__dict__["protected"]
+    done = refs.all_branches["done"]
+    assert done.local_merged is None
+    assert done.cleanable
+    assert refs.local_branch_names == ["done", "local-work", "main", "remote-work"]
+    assert done.parent is refs
+    assert done.parent.parent is git_dir
+    assert done.local_ref == "refs/heads/done"
+    assert done.remote_ref == "refs/remotes/origin/done"
+    assert done.local_oid
+    assert done.remote_oid == done.local_oid
+    assert done.local_tree
+    assert done.remote_tree == done.local_tree
+    assert done.local_merged
+    assert done.remote_merged
+    assert main.parent is refs
+    assert main.remote_ref == "refs/remotes/origin/main"
+    assert refs.cleanable_base() is main
+    assert main.protected
+
+
+def test_refs_include_remote_only_branches(cli, git):
+    repo = git.seeded("repo")
+    repo.checkout("-b", "remote-only")
+    repo.commit_file("remote.txt", "published", "remote work")
+    repo.push("-u", "origin", "remote-only")
+    repo.checkout("main")
+    repo.branch("-D", "remote-only")
+
+    refs = GitDir(repo.cwd).lazy_refs
+    remote_only = refs.all_branches["origin/remote-only"]
+
+    assert not remote_only.has_local
+    assert remote_only.has_remote
+    assert remote_only.remote == "origin"
+    assert remote_only.remote_ref == "refs/remotes/origin/remote-only"
+
+    cli.run("branches repo")
+    assert cli.succeeded
+    assert "remote-only" not in cli.logged
+
+
+def test_branches_batch_normal_merge_proofs(cli, git):
+    repo = git.seeded("repo")
+    for branch in ("done-a", "done-b"):
+        repo.checkout("-b", branch, "main")
+
+    repo.checkout("main")
+
+    cli.run("-v branches repo")
+
+    assert cli.succeeded
+    output = str(cli.logged)
+    merged_commands = {line for line in output.splitlines() if "for-each-ref --merged=" in line}
+    assert len(merged_commands) == 1
+    assert " git -C repo remote" not in output
+    assert "symbolic-ref" not in output
+    assert "merge-base --is-ancestor" not in output
+    assert "merge-tree" not in output
+    assert "rev-parse" not in output
 
 
 def test_unmerged_branch_with_gone_upstream_is_not_cleanable(cli, git):
@@ -383,6 +460,27 @@ def test_main_checks_out_default_branch(cli, git):
 
     assert cli.succeeded
     assert repo.current_branch == "main"
+
+
+def test_main_only_evaluates_cleanability_for_reported_snapshot(cli, git, monkeypatch):
+    repo = git.seeded("repo")
+    repo.checkout("-b", "feature")
+    evaluated = []
+    evaluate_cleanability = GitRefs.evaluate_cleanability
+
+    def track_evaluation(refs):
+        if not refs._cleanup_evaluated:
+            evaluated.append(refs.current)
+
+        return evaluate_cleanability(refs)
+
+    monkeypatch.setattr(GitRefs, "evaluate_cleanability", track_evaluation)
+
+    cli.run("-v main repo")
+
+    assert cli.succeeded
+    assert repo.current_branch == "main"
+    assert evaluated == ["main"]
 
 
 def test_main_prefers_main_over_master_without_remote_head(cli, git):
