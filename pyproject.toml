@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools>=77", "setuptools-scm"]  # setuptools 77+ for SPDX `license` below
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
@@ -12,9 +12,8 @@ authors = [
 ]
 description = "Fetch collections of git projects"
 readme = "README.rst"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
-license-files = ["LICENSE.txt"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
@@ -24,7 +23,6 @@ classifiers = [
     "Operating System :: Unix",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -52,16 +50,16 @@ dev = [
 ]
 
 [tool.mypy]  # also read by zuban
-python_version = "3.9"
+python_version = "3.10"
 files = ["src", "tests"]
 warn_no_return = false  # Implicit `return None` is still type checked
 
 [tool.pyrefly]  # without this section, pyrefly adopts [tool.pyright] (or [tool.mypy])
-python-version = "3.9"
+python-version = "3.10"
 project-includes = ["src", "tests"]
 
 [tool.pyright]  # also read by basedpyright (it refuses a pyproject that has both sections)
-pythonVersion = "3.9"
+pythonVersion = "3.10"
 include = ["src", "tests"]
 
 [tool.ruff]
