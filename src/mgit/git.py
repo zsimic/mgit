@@ -116,9 +116,9 @@ class GitRunReport:
         note: str | None = None,
         problem: str | None = None,
     ):
-        self._progress = []
-        self._note = []
-        self._problem = []
+        self._progress: list[str] = []
+        self._note: list[str] = []
+        self._problem: list[str] = []
         self.add(other, progress=progress, note=note, problem=problem)
 
     def __str__(self):

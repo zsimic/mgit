@@ -63,7 +63,7 @@ class TempGitRepo:
     @staticmethod
     def run_git_command(*args, check=True, cwd=None) -> str:
         if cwd:
-            args = ["-C", str(cwd), *args]
+            args = ("-C", str(cwd), *args)
 
         assert GIT_PATH
         proc = subprocess.run([GIT_PATH, *args], check=check, capture_output=True, text=True)  # noqa: S603

@@ -36,3 +36,4 @@ jobs:
 
     - uses: astral-sh/setup-uv@v10.3.0
     - run: uvx --with tox-uv tox -e style
+#    - run: uvx --with tox-uv tox -e ty,pyrefly,pyright,mypy

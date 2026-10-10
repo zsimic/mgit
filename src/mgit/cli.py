@@ -7,6 +7,7 @@ import sys
 from abc import ABC, abstractmethod
 from importlib.metadata import version
 from pathlib import Path
+from typing import TypeVar
 
 import runez
 
@@ -35,12 +36,12 @@ class CliCommand(ABC):
         return cls.__doc__.splitlines()[0]
 
     @classmethod  # noqa: B027 - optional hook
-    def add_arguments(cls, _parser: argparse.ArgumentParser):
+    def add_arguments(cls, _parser: argparse.ArgumentParser, /):
         """Add command-specific arguments."""
 
     @classmethod
     @abstractmethod
-    def from_namespace(cls, _namespace: argparse.Namespace) -> CliCommand:
+    def from_namespace(cls, _namespace: argparse.Namespace, /) -> CliCommand:
         """Create a command from parsed CLI arguments."""
 
     @abstractmethod
@@ -48,7 +49,7 @@ class CliCommand(ABC):
         """Run the command."""
 
 
-class FolderTargetCommand(CliCommand):
+class FolderTargetCommand(CliCommand, ABC):
     folder: Path | None = None
 
     def __init__(self, folder: Path | None):
@@ -94,13 +95,14 @@ class FolderTargetCommand(CliCommand):
     def run_single(self, git: GitDir):
         """Run this command for one git dir."""
 
-    def run_multi(self, _project_dir: ProjectDir) -> None:
+    def run_multi(self, _project_dir: ProjectDir, /) -> None:
         """Run this command for all git dirs in `project_dir`."""
         Reporter.abort(f"{self.command_name()} only supports one git checkout")
 
 
 COMMANDS: list[type[CliCommand]] = []
 COMMAND_BY_TOKEN: dict[str, type[CliCommand]] = {}
+CliCommandT = TypeVar("CliCommandT", bound=CliCommand)
 
 
 def register_cli_command(name: str | None, command: type[CliCommand]):
@@ -109,7 +111,7 @@ def register_cli_command(name: str | None, command: type[CliCommand]):
     COMMAND_BY_TOKEN[name] = command
 
 
-def cli_command(command: type[CliCommand]) -> type[CliCommand]:
+def cli_command(command: type[CliCommandT]) -> type[CliCommandT]:
     COMMANDS.append(command)
     register_cli_command(command.command_name(), command)
     register_cli_command(command.short_name, command)
@@ -294,7 +296,7 @@ class CommandHelpFormatter(argparse.HelpFormatter):
         return super()._format_action(action)
 
 
-def add_command_parser(subparsers: argparse._SubParsersAction, command: type[CliCommand]):
+def add_command_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser], command: type[CliCommand]):
     aliases = [command.short_name] if command.short_name else []
     parser = subparsers.add_parser(
         command.command_name(),

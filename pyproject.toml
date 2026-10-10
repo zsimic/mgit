@@ -54,6 +54,11 @@ python_version = "3.10"
 files = ["src", "tests"]
 warn_no_return = false  # Implicit `return None` is still type checked
 
+[[tool.mypy.overrides]]
+# Tests check state, call something, and check again: checkers assume a call leaves attributes as they were
+module = ["tests.*"]
+warn_unreachable = false
+
 [tool.pyrefly]  # without this section, pyrefly adopts [tool.pyright] (or [tool.mypy])
 python-version = "3.10"
 project-includes = ["src", "tests"]
@@ -61,6 +66,11 @@ project-includes = ["src", "tests"]
 [tool.pyright]  # also read by basedpyright (it refuses a pyproject that has both sections)
 pythonVersion = "3.10"
 include = ["src", "tests"]
+
+[[tool.ty.overrides]]
+# Tests check state, call something, and check again: ty assumes a call leaves attributes as they were
+include = ["tests/**"]
+rules = { redundant-condition = "ignore" }
 
 [tool.ruff]
 cache-dir = ".tox/.ruff_cache"

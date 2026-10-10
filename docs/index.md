@@ -23,3 +23,5 @@ Tests drive the CLI end to end against throwaway git repos created by the fixtur
 
 - [Contributing](./contributing.md) — local setup, running tests and checks.
 - [Design notes](./design.md) — the cached git state, and what invalidates it.
+- [Type checker findings](./typecheck-findings.md) — what introducing multiple type checkers found
+  and fixed.

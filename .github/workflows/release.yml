@@ -22,6 +22,7 @@ jobs:
 
     - uses: astral-sh/setup-uv@v10.3.0
     - run: uvx --with tox-uv tox -e py,style
+#    - run: uvx --with tox-uv tox -e ty,pyrefly,pyright,mypy
     - run: uv build
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1

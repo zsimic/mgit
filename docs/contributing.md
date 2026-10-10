@@ -23,4 +23,5 @@ For coverage, run `tox`, then open `.tox/test-reports/htmlcov/index.html`.
 ## Before you open a PR
 
 `tox -e style` must pass, `tox -e reformat` applies the mechanical fixes. Each type checker has a
-tox environment named after it (`tox -e <typechecker>`), they don't gate CI yet.
+tox environment named after it (`tox -e <typechecker>`): the ones CI runs (see `.github/workflows/`)
+must pass too, the others are a second opinion.
