@@ -369,7 +369,7 @@ class GitRefs:
             local_branch_name = refname[len(LOCAL_REF_PREFIX) :]
             info = BranchInfo(self, local_branch_name, local_ref=refname, local_oid=oid, local_tree=tree or None)
             if upstream_remote and upstream_ref:
-                upstream_branch = upstream_ref[len(LOCAL_REF_PREFIX) :] if upstream_ref.startswith(LOCAL_REF_PREFIX) else upstream_ref
+                upstream_branch = upstream_ref.removeprefix(LOCAL_REF_PREFIX)
                 info.upstream = BranchUpstream(remote=upstream_remote, branch=upstream_branch)
 
             self.all_branches[local_branch_name] = info

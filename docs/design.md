@@ -1,66 +1,43 @@
-# Design Notes
+# Design notes
 
-This document records implementation decisions and constraints that are useful
-when changing `mgit`. It is intentionally broader than a user-facing
-architecture overview: add notes here when they explain how a part of the CLI
-should continue to evolve.
+A `GitDir` lives for one command run. It caches the git state that would otherwise take repeated
+subprocess calls, in two snapshots built on first access.
 
-## Cached Repository State
+## The two snapshots
 
-`GitDir` is used for one command run and lazily captures git state that can
-otherwise require repeated subprocess calls.
+- `GitDir.lazy_status` is a `GitStatus`, parsed from `git status --porcelain=v2 --branch`: pending
+  changes and ahead/behind counts. It knows nothing about refs, a gone upstream for example comes
+  from `GitRefs`.
+- `GitDir.lazy_refs` is a `GitRefs`, built from `git for-each-ref` over local and remote branches.
+  `GitRefs.all_branches` has one `BranchInfo` per branch: a local branch and the remote branch it
+  tracks share an entry (keyed by the local name), an untracked remote branch gets its own (keyed
+  like `origin/topic`). There is deliberately no separate index of remote refs.
+- `GitRefs.default_branch` is `origin/HEAD` when set, otherwise `main` or `master`, whichever
+  exists.
 
-- `GitDir.lazy_status`: A `GitStatus` snapshot produced from
-  `git status --porcelain=v2 --branch`. It includes pending changes and
-  upstream ahead/behind information. It does not classify ref-derived
-  conditions such as a gone upstream; command flows combine that information
-  with `GitRefs` where needed.
+Plain inspection never runs `git remote`, only `pull` does (to report "no remotes").
 
-- `GitDir.lazy_refs`: A `GitRefs` snapshot centered on
-  `GitRefs.all_branches: dict[str, BranchInfo]`. Local branches are keyed by
-  their local name; unpaired remote-tracking branches use a qualified key such
-  as `origin/topic`. Each `BranchInfo` carries raw local/tracked-remote refs,
-  OIDs, trees, upstream configuration, protection, and evaluated cleanup
-  proofs, plus its owning `GitRefs` snapshot for lazily derived ref metadata
-  such as protection. The snapshot in turn owns its `GitDir`, which branches
-  use for exceptional proof commands. A local branch and its tracked remote
-  share one `BranchInfo`; a remote branch with no matching local upstream gets
-  a qualified entry instead of a parallel remote-ref index. Plain inspection
-  does not run `git remote`; the pull flow queries configured remotes only
-  when it needs to distinguish a missing remote.
+## Cleanup proofs are lazy
 
-- `GitRefs.default_branch`: The default branch derived for a particular refs
-  snapshot, preferring `origin/HEAD` and falling back to a visible `main` or
-  `master` branch.
+`BranchInfo.cleanable`, `.local_cleanup` and `.remote_cleanup` are evaluated on first access, for
+every branch of the snapshot at once. One `git for-each-ref --merged=<default branch>` finds the
+regularly merged branches, and only the remaining candidates get an individual `git merge-tree`
+check, which is what recognizes squash-merged ones. It stays lazy because flows like `main` and
+`pull` look at refs, then immediately invalidate them.
 
-- `BranchInfo.cleanable`, `local_cleanup`, and `remote_cleanup`: Lazily ask
-  their owning `GitRefs` snapshot to fill merge and cleanup proof fields.
-  Normal ancestry-merged branches are discovered in one
-  `git for-each-ref --merged=<base>` query. Candidates not found there require
-  individual `git merge-tree` checks to retain squash-merge/content
-  equivalence support. This remains lazy because flows such as checkout and
-  pull may inspect and then immediately invalidate a refs snapshot.
+## Invalidation
 
-## Invalidation Requirements
-
-The operations below may run during one lifetime of a `GitDir` instance:
+What each state-changing operation does to the snapshots of the `GitDir` it runs on:
 
 | Operation | `status` | `refs` | Reason |
 | --- | --- | --- | --- |
-| `fetch_now()` | stale | stale | Ahead/behind and remote-tracking branches can change; pruning can alter branch presence and cleanup proof. |
-| checkout | stale | stale | The checked-out branch and displayed status can change. |
-| `pull()` | stale | stale | Worktree/status and remote-tracking refs may change, including when the pull fails after doing some work. |
-| delete local branch | unchanged in the `groom` flow | stale | The local branch collection changes; deletion occurs after checkout. |
-| delete remote branch | unchanged in the `groom` flow | stale | The remote-tracking branch collection changes. |
+| `fetch_now()` | stale | stale | Ahead/behind and remote branches can change, pruning can remove branches and change cleanup proofs. |
+| checkout | stale | stale | The current branch, and what status shows, can change. |
+| `pull()` | stale | stale | Worktree and remote branches can change, even when the pull fails midway. |
+| delete local branch | unchanged in `groom` | stale | The set of local branches changes, deletion happens after checkout. |
+| delete remote branch | unchanged in `groom` | stale | The set of remote branches changes. |
 
-`default_branch` and evaluated `BranchInfo` cleanup state share the lifetime
-of their owning `GitRefs` snapshot. Replacing stale `refs` discards the branch
-map so raw refs and cleanup state are recomputed from the fresh snapshot.
-
-## Current Implementation Note
-
-`GitDir.lazy_status` and `GitDir.lazy_refs` are ordinary lazy properties backed by
-`_status` and `_refs`. State-changing `GitDir` methods explicitly set the
-affected backing field to `None` according to the table above. This keeps
-invalidation local to the operation that makes a snapshot stale and avoids a
-generic cache reset.
+`default_branch` and the cleanup proofs live and die with their `GitRefs` snapshot: a fresh one
+recomputes everything. The methods making a snapshot stale reset its backing field (`_status`,
+`_refs`) to `None` themselves, keeping invalidation next to the operation that causes it rather
+than in a generic cache reset.

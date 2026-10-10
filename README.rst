@@ -178,25 +178,7 @@ or::
 
     pipx install mgit
 
-Install from a checkout for development::
-
-    git clone https://github.com/zsimic/mgit.git
-    cd mgit
-    uv sync
-    .venv/bin/mgit --help
-
-
-Develop
-=======
-
-Fast local checks::
-
-    .venv/bin/pytest -q
-    ruff check
-
-Full confidence check::
-
-    tox
+To work on mgit itself, see `contributing <https://github.com/zsimic/mgit/blob/main/docs/contributing.md>`_.
 
 
 .. _pickley: https://pypi.org/project/pickley/

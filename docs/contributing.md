@@ -1,54 +1,26 @@
 # Contributing
 
-Contributions are welcome!
+Contributions are welcome. [tox](https://github.com/tox-dev/tox) drives the full test run,
+packaging metadata lives in `pyproject.toml`, and versions come from git tags via `setuptools-scm`.
 
-[tox](https://github.com/tox-dev/tox) is used for full test runs. Packaging
-metadata lives in `pyproject.toml` and versions come from `setuptools-scm`.
+## Get going locally
 
-## Development
-
-To get going locally, simply do this:
-
-```console
-git clone https://github.com/zsimic/mgit.git
+```shell
+git clone https://github.com/zsimic/mgit.git  # or your own fork
 cd mgit
-
-uv sync
-
-# You have a venv now in ./.venv
-source .venv/bin/activate
-which python
-which mgit
-mgit
-
-deactivate
+uv sync  # creates ./.venv, with mgit installed in editable mode
+.venv/bin/mgit --help
 ```
 
-## Running The Tests
+## Running the tests
 
-Fast local checks:
+`.venv/bin/pytest` for quick iterations, `tox` for the whole thing: the same environments CI runs.
+Its `envlist` covers only the oldest and newest supported Python versions, to keep local runs
+fast. `tox -l` lists every environment, and `tox.ini` is the authority on what each one does.
 
-```console
-.venv/bin/pytest -q
-ruff check
-```
+For coverage, run `tox`, then open `.tox/test-reports/htmlcov/index.html`.
 
-Full confidence check:
+## Before you open a PR
 
-```console
-tox
-```
-
-Useful focused tox runs:
-
-- `tox -e py39` for the minimum supported Python version.
-
-- `tox -e py314` for the newest supported Python version.
-
-- `tox -e style` for packaged lint/type checks.
-
-- `tox -e docs` for a strict `README.rst` parse check.
-
-## Test Coverage
-
-Run `tox`, then open `.tox/test-reports/htmlcov/index.html`.
+`tox -e style` must pass, `tox -e reformat` applies the mechanical fixes. Each type checker has a
+tox environment named after it (`tox -e <typechecker>`), they don't gate CI yet.
