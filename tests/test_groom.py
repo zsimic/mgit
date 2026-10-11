@@ -1,6 +1,6 @@
 import pytest
 
-from mgit.cli import GroomCommand
+from mgit.git import GitDir
 
 
 def make_stale_tracked_branch(work, branch="stale", merged=True):
@@ -113,14 +113,15 @@ def test_groom_does_not_delete_remote_branch_that_advanced_after_fetch(cli, git,
     racer = git.clone(repos.remote_url, "racer")
     racer.checkout("-b", "published", "origin/published")
 
-    checkout_default_branch = GroomCommand._checkout_default_branch
+    checkout_default_branch = GitDir.checkout_default_branch
 
-    def advance_remote_after_checkout(command, git_dir, branch):
-        checkout_default_branch(command, git_dir, branch)
+    def advance_remote_after_checkout(git_dir):
+        report = checkout_default_branch(git_dir)
         racer.commit_file("late.txt", "not merged", "advance published")
         racer.push("origin", "published")
+        return report
 
-    monkeypatch.setattr(GroomCommand, "_checkout_default_branch", advance_remote_after_checkout)
+    monkeypatch.setattr(GitDir, "checkout_default_branch", advance_remote_after_checkout)
     cli.run("g work")
 
     assert cli.failed

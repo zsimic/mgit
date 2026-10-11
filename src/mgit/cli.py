@@ -7,6 +7,7 @@ import sys
 from abc import ABC, abstractmethod
 from importlib.metadata import version
 from pathlib import Path
+from typing import TypeVar
 
 import runez
 
@@ -35,12 +36,12 @@ class CliCommand(ABC):
         return cls.__doc__.splitlines()[0]
 
     @classmethod  # noqa: B027 - optional hook
-    def add_arguments(cls, _parser: argparse.ArgumentParser):
+    def add_arguments(cls, _parser: argparse.ArgumentParser, /):
         """Add command-specific arguments."""
 
     @classmethod
     @abstractmethod
-    def from_namespace(cls, _namespace: argparse.Namespace) -> CliCommand:
+    def from_namespace(cls, _namespace: argparse.Namespace, /) -> CliCommand:
         """Create a command from parsed CLI arguments."""
 
     @abstractmethod
@@ -48,7 +49,7 @@ class CliCommand(ABC):
         """Run the command."""
 
 
-class FolderTargetCommand(CliCommand):
+class FolderTargetCommand(CliCommand, ABC):
     folder: Path | None = None
 
     def __init__(self, folder: Path | None):
@@ -94,13 +95,14 @@ class FolderTargetCommand(CliCommand):
     def run_single(self, git: GitDir):
         """Run this command for one git dir."""
 
-    def run_multi(self, _project_dir: ProjectDir) -> None:
+    def run_multi(self, _project_dir: ProjectDir, /) -> None:
         """Run this command for all git dirs in `project_dir`."""
         Reporter.abort(f"{self.command_name()} only supports one git checkout")
 
 
 COMMANDS: list[type[CliCommand]] = []
 COMMAND_BY_TOKEN: dict[str, type[CliCommand]] = {}
+CliCommandT = TypeVar("CliCommandT", bound=CliCommand)
 
 
 def register_cli_command(name: str | None, command: type[CliCommand]):
@@ -109,7 +111,7 @@ def register_cli_command(name: str | None, command: type[CliCommand]):
     COMMAND_BY_TOKEN[name] = command
 
 
-def cli_command(command: type[CliCommand]) -> type[CliCommand]:
+def cli_command(command: type[CliCommandT]) -> type[CliCommandT]:
     COMMANDS.append(command)
     register_cli_command(command.command_name(), command)
     register_cli_command(command.short_name, command)
@@ -140,7 +142,7 @@ class FetchCommand(FolderTargetCommand):
     short_name = "f"
 
     def run_single(self, git: GitDir):
-        report = git.fetch_now().require_success("fetch")
+        report = git.fetch_now(abort_on_failure=True)
         print(git.status_line(report))
         details = git.status_details()
         if details:
@@ -159,7 +161,7 @@ class PullCommand(FolderTargetCommand):
     short_name = "p"
 
     def run_single(self, git: GitDir):
-        report = git.pull().require_success("pull")
+        report = git.pull(abort_on_failure=True).require_success("pull")
         print(git.status_line(report))
         details = git.status_details()
         if details:
@@ -187,14 +189,33 @@ class MainCommand(FolderTargetCommand):
 
 @cli_command
 class BranchesCommand(FolderTargetCommand):
-    """Show local branches."""
+    """Show local branches and their cleanup state."""
 
     short_name = "b"
+
+    def __init__(self, folder: Path | None, with_legend=False):
+        super().__init__(folder)
+        self.with_legend = with_legend
+
+    @classmethod
+    def add_arguments(cls, parser: argparse.ArgumentParser):
+        parser.add_argument("-l", "--legend", action="store_true", help="Show symbol legend below the branch list.")
+        super().add_arguments(parser)
+
+    @classmethod
+    def from_namespace(cls, namespace: argparse.Namespace) -> FolderTargetCommand:
+        return cls(folder=namespace.folder, with_legend=namespace.legend)
+
+    def print_legend(self):
+        if self.with_legend:
+            print(f"\n{Reporter.legend()}")
 
     def run_single(self, git: GitDir):
         details = git.branch_details()
         if details:
             print(details)
+
+        self.print_legend()
 
     def run_multi(self, project_dir: ProjectDir):
         show_names = len(project_dir.git_dirs) > 1
@@ -207,6 +228,22 @@ class BranchesCommand(FolderTargetCommand):
             if details:
                 print(details)
 
+        self.print_legend()
+
+
+@cli_command
+class LegendCommand(CliCommand):
+    """Explain status and branch symbols."""
+
+    short_name = "l"
+
+    @classmethod
+    def from_namespace(cls, _namespace: argparse.Namespace) -> LegendCommand:
+        return cls()
+
+    def run(self):
+        print(Reporter.legend())
+
 
 @cli_command
 class GroomCommand(FolderTargetCommand):
@@ -214,61 +251,38 @@ class GroomCommand(FolderTargetCommand):
 
     short_name = "g"
 
-    def _checkout_default_branch(self, git: GitDir, branch: str):
-        git.checked_git_command("checkout", branch)
-        git.clear_cached_state()
-        print(f"Checked out {git.represented_branch(branch)} branch")
-
-    def _delete_local_branch(self, git: GitDir, cleanup):
-        args = ["branch", "--delete", cleanup.name]
-        if cleanup.force_delete:
-            args.insert(2, "--force")
-
-        git.checked_git_command(*args)
-        print(f"Deleted branch {git.represented_branch(cleanup.name)}")
-        git.clear_cached_state()
-
-    def _delete_remote_branch(self, git: GitDir, cleanup):
-        branch_ref = f"refs/heads/{cleanup.branch}"
-        git.checked_git_command(
-            "push",
-            f"--force-with-lease={branch_ref}:{cleanup.expected_oid}",
-            "--delete",
-            cleanup.remote,
-            branch_ref,
-        )
-        print(f"Deleted remote branch {cleanup.remote}/{git.represented_branch(cleanup.branch)}")
-        git.clear_cached_state()
-
     def run_single(self, git: GitDir):
-        report = git.fetch_now().require_success("groom")
-        refs = git.refs
+        report = git.fetch_now(abort_on_failure=True)
+        refs = git.lazy_refs
         current_branch = refs.current
-        default_branch = git.default_branch
+        default_branch = refs.default_branch
         if current_branch == default_branch:
             report.add(note="already on default branch")
             print(git.status_line(report))
             return
 
-        git.status.require_clean("groom")
-        remote_cleanup = None
+        git.lazy_status.require_clean("groom")
         local_cleanup = git.cleanable_local_branch(current_branch, include_current=True)
         if not local_cleanup:
-            Reporter.abort(f"Branch {git.represented_branch(current_branch)} can't be cleaned")
+            Reporter.abort(f"Branch {refs.represented_branch(current_branch)} can't be cleaned")
 
-        upstream = refs.upstreams.get(current_branch)
-        if upstream and refs.has_remote_branch(upstream.remote, upstream.branch):
+        current_info = refs.local_branch(current_branch)
+        upstream = current_info.upstream if current_info else None
+        remote_cleanup = None
+        if upstream and current_info and current_info.has_remote:
             remote_cleanup = git.cleanable_current_remote_branch()
             if not remote_cleanup:
-                Reporter.abort(f"Remote branch {upstream.remote}/{git.represented_branch(upstream.branch)} can't be cleaned automatically")
+                Reporter.abort(f"Remote branch {upstream.remote}/{refs.represented_branch(upstream.branch)} can't be cleaned automatically")
 
-        self._checkout_default_branch(git, default_branch)
-        report = git.pull().require_success("groom")
-        git.clear_cached_state()
+        git.checkout_default_branch()
+        print(f"Checked out {git.lazy_refs.represented_branch(default_branch)} branch")
+        report = git.pull(abort_on_failure=True).require_success("groom")
         if remote_cleanup:
-            self._delete_remote_branch(git, remote_cleanup)
+            git.delete_remote_branch(remote_cleanup)
+            print(f"Deleted remote branch {remote_cleanup.remote}/{git.lazy_refs.represented_branch(remote_cleanup.branch)}")
 
-        self._delete_local_branch(git, local_cleanup)
+        git.delete_local_branch(local_cleanup)
+        print(f"Deleted branch {git.lazy_refs.represented_branch(local_cleanup.name)}")
         print(git.status_line(report))
 
 
@@ -282,7 +296,7 @@ class CommandHelpFormatter(argparse.HelpFormatter):
         return super()._format_action(action)
 
 
-def add_command_parser(subparsers: argparse._SubParsersAction, command: type[CliCommand]):
+def add_command_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser], command: type[CliCommand]):
     aliases = [command.short_name] if command.short_name else []
     parser = subparsers.add_parser(
         command.command_name(),
